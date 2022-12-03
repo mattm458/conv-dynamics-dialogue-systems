@@ -7,6 +7,9 @@ lightning_logs/
 .vector_cache
 *.csv
 
+# Development
+.vscode
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
