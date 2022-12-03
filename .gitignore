@@ -1,7 +1,11 @@
+# Repo development and preprocessing exclusions
+fisher-embeddings
+
 # Custom ML project exclusions
 lightning_logs/
 *.ipynb
 .vector_cache
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
