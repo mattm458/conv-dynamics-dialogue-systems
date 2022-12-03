@@ -107,6 +107,13 @@ def preprocess_subparser(subparsers):
         help="A path to the dataset",
     )
 
+    preprocess_subparser.add_argument(
+        "--embedding-out-dir",
+        type=str,
+        required=True,
+        help="A path to a directory to save word embeddings",
+    )
+
 
 parser = argparse.ArgumentParser(description="Train a model")
 

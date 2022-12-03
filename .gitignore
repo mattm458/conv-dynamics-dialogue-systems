@@ -5,7 +5,7 @@ fisher-embeddings
 lightning_logs/
 *.ipynb
 .vector_cache
-
+*.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
