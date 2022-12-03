@@ -88,19 +88,46 @@ def torchscript_subparser(subparsers):
     )
 
 
+def preprocess_subparser(subparsers):
+    preprocess_subparser = subparsers.add_parser(
+        "preprocess", help="Preprocess a dataset"
+    )
+
+    preprocess_subparser.add_argument(
+        "--dataset",
+        type=str,
+        required=True,
+        help="The name of the dataset to preprocess",
+    )
+
+    preprocess_subparser.add_argument(
+        "--dataset-dir",
+        type=str,
+        required=True,
+        help="A path to the dataset",
+    )
+
+
 parser = argparse.ArgumentParser(description="Train a model")
 
-parser.add_argument(
+subparsers = parser.add_subparsers(required=True, dest="mode")
+
+preprocess_subparser(subparsers)
+
+model_subparser = subparsers.add_parser(
+    "model", help="Train, evaluate, or export a model"
+)
+
+model_subparser.add_argument(
     "--config",
     type=str,
     required=True,
     help="A JSON file containing model configurations and hyperparameters.",
 )
 
-subparsers = parser.add_subparsers(required=True, dest="mode")
-
-train_subparser(subparsers)
-test_subparser(subparsers)
-torchscript_subparser(subparsers)
+model_mode = model_subparser.add_subparsers(required=True, dest="model_mode")
+train_subparser(model_mode)
+test_subparser(model_mode)
+torchscript_subparser(model_mode)
 
 args = parser.parse_args()
