@@ -1,5 +1,6 @@
 # Repo development and preprocessing exclusions
 fisher-embeddings
+fisher-ipu-data
 
 # Custom ML project exclusions
 lightning_logs/
