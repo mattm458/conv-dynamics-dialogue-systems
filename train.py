@@ -95,7 +95,7 @@ def _do_cross_validate_52(
         auto_lr_find=False,
         logger=logger,
         enable_progress_bar=enable_progress_bar,
-        max_epochs=1,
+        max_epochs=1000,
     )
 
     trainer.fit(
