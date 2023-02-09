@@ -1,0 +1,41 @@
+{
+    "dataset": {
+        "train": "fisher_train_ids-2.csv",
+        "test": "fisher_test_ids-2.csv",
+        "val": "fisher_val_ids-2.csv",
+        "features": [
+            "pitch_mean_norm_range",
+            "pitch_range_norm_range",
+            "intensity_mean_vcd_norm_range",
+            "jitter_norm_range",
+            "shimmer_norm_range",
+            "nhr_vcd_norm_range",
+            "rate_norm_range"
+        ]
+    },
+    "training": {
+        "lr": 0.0001,
+        "batch_size": 64,
+        "early_stopping_patience": 25,
+        "name": "dual_attention"
+    },
+    "model": {
+        "type": "sequential",
+        "args": {
+            "embedding_dim": 50,
+            "embedding_encoder_out_dim": 32,
+            "embedding_encoder_num_layers": 2,
+            "embedding_encoder_dropout": 0.0,
+            "embedding_encoder_att_dim": 32,
+            "encoder_hidden_dim": 32,
+            "encoder_num_layers": 2,
+            "encoder_dropout": 0.0,
+            "decoder_att_dim": 32,
+            "decoder_hidden_dim": 32,
+            "decoder_num_layers": 2,
+            "decoder_dropout": 0.0,
+            "num_decoders": 7,
+            "attention_style": "dual"
+        }
+    }
+}

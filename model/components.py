@@ -312,10 +312,6 @@ class Decoder(torch.jit.ScriptModule):
                 "Number of hidden tensors must equal the number of RNN layers!"
             )
 
-        batch_size = encoded.shape[0]
-        device = encoded.device
-        dtype = encoded.dtype
-
         new_hidden: List[Tensor] = []
 
         x = encoded

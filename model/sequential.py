@@ -28,32 +28,22 @@ def save_figure_to_numpy(fig):
 class SequentialConversationModel(pl.LightningModule):
     def __init__(
         self,
-        feature_names=[
-            "pitch_mean",
-            "pitch_range",
-            "intensity",
-            "jitter",
-            "shimmer",
-            "nhr",
-            "rate",
-        ],
-        embedding_dim=50,
-        embedding_encoder_out_dim=32,
-        embedding_encoder_num_layers=2,
-        embedding_encoder_dropout=0.0,
-        embedding_encoder_att_dim=32,
-        encoder_hidden_dim=32,
-        encoder_num_layers=2,
-        encoder_dropout=0.0,
-        decoder_att_dim=32,
-        decoder_hidden_dim=32,
-        decoder_num_layers=2,
-        decoder_dropout=0.0,
-        num_decoders=7,
-        attention_style="dual",
-        encode_speaker=False,
-        decoder_activation=None,
-        lr=0.001,
+        feature_names,
+        embedding_dim,
+        embedding_encoder_out_dim,
+        embedding_encoder_num_layers,
+        embedding_encoder_dropout,
+        embedding_encoder_att_dim,
+        encoder_hidden_dim,
+        encoder_num_layers,
+        encoder_dropout,
+        decoder_att_dim,
+        decoder_hidden_dim,
+        decoder_num_layers,
+        decoder_dropout,
+        num_decoders,
+        attention_style,
+        lr,
     ):
         super().__init__()
 
@@ -62,7 +52,6 @@ class SequentialConversationModel(pl.LightningModule):
         self.US = None
         self.THEM = None
 
-        self.encode_speaker = encode_speaker
         self.num_features = 7
         self.feature_names = feature_names
         self.lr = lr
@@ -76,9 +65,7 @@ class SequentialConversationModel(pl.LightningModule):
             attention_dim=embedding_encoder_att_dim,
         )
 
-        encoder_in_dim = len(feature_names) + embedding_encoder_out_dim
-        if encode_speaker:
-            encoder_in_dim += 2
+        encoder_in_dim = len(feature_names) + embedding_encoder_out_dim + 2
 
         self.encoder = Encoder(
             in_dim=encoder_in_dim,
@@ -123,12 +110,13 @@ class SequentialConversationModel(pl.LightningModule):
             self.decoders.append(
                 Decoder(
                     decoder_in_dim=embedding_encoder_att_dim
-                    + (encoder_hidden_dim * attention_multiplier),
+                    + (encoder_hidden_dim * attention_multiplier)
+                    + 2,
                     hidden_dim=decoder_hidden_dim,
                     num_layers=decoder_num_layers,
                     decoder_dropout=decoder_dropout,
                     output_dim=1,
-                    activation=decoder_activation,
+                    activation=None,
                 )
             )
 
@@ -157,7 +145,7 @@ class SequentialConversationModel(pl.LightningModule):
             our_scores_mask,
             their_scores,
             their_scores_mask,
-        ) = self.sequence(
+        ) = self(
             features,
             speakers,
             embeddings,
@@ -195,10 +183,10 @@ class SequentialConversationModel(pl.LightningModule):
             "predict": predict,
         }
 
-    def training_step_end(self, outputs):
-        if self.global_step % 500 == 0:
-            for name, parameter in self.named_parameters():
-                self.logger.experiment.add_histogram(name, parameter, self.global_step)
+    # def training_step_end(self, outputs):
+    #     if self.global_step % 500 == 0:
+    #         for name, parameter in self.named_parameters():
+    #             self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
     def training_step(self, batch, batch_idx):
         (
@@ -222,7 +210,7 @@ class SequentialConversationModel(pl.LightningModule):
             our_scores_mask,
             their_scores,
             their_scores_mask,
-        ) = self.sequence(
+        ) = self(
             features,
             speakers,
             embeddings,
@@ -255,6 +243,7 @@ class SequentialConversationModel(pl.LightningModule):
         optimizer.zero_grad(set_to_none=True)
 
     def validation_epoch_end(self, outputs):
+        return 
         if self.attention_style == "noop":
             return
 
@@ -320,7 +309,7 @@ class SequentialConversationModel(pl.LightningModule):
                     dataformats="HWC",
                 )
 
-    def sequence(
+    def forward(
         self,
         features,
         speakers,
@@ -400,9 +389,11 @@ class SequentialConversationModel(pl.LightningModule):
 
             # Assemble the encoder input. This includes the current conversation features
             # and the previously-encoded embeddings.
-            encoder_in = [features_timestep, embeddings_encoded_timestep]
-            if self.encode_speaker:
-                encoder_in.append(speaker_timestep)
+            encoder_in = [
+                features_timestep,
+                embeddings_encoded_timestep,
+                speaker_timestep,
+            ]
 
             encoder_in = torch.cat(encoder_in, dim=-1)
 
@@ -415,6 +406,9 @@ class SequentialConversationModel(pl.LightningModule):
 
             # Get the encoded representation of the upcoming units we are about to predict
             embeddings_encoded_timestep_next_pred = embeddings_encoded_timestep_next
+
+            # Get the speaker that the decoder is about to receive
+            speaker_next = speakers[i + 1]
 
             # Assemble the attention context vector for each of the decoder attention layer(s)
             att_contexts = [
@@ -458,7 +452,7 @@ class SequentialConversationModel(pl.LightningModule):
                     combined_scores_cat.append(combined_scores)
 
                 decoder_in = torch.cat(
-                    [history_att, embeddings_encoded_timestep_next_pred],
+                    [history_att, embeddings_encoded_timestep_next_pred, speaker_next],
                     dim=-1,
                 )
 

@@ -18,7 +18,15 @@ from model.config import get_model
 
 
 def _do_cross_validate_52(
-    training_config, model_config, train_ids, val_ids, features, results_dir, device, i
+    training_config,
+    model_config,
+    train_ids,
+    val_ids,
+    features,
+    results_dir,
+    device,
+    i,
+    enable_progress_bar=False,
 ):
     torch.set_float32_matmul_precision("high")
 
@@ -86,8 +94,8 @@ def _do_cross_validate_52(
         callbacks=[model_checkpoint, early_stopping],
         auto_lr_find=False,
         logger=logger,
-        enable_progress_bar=False,
-        max_epochs=1000,
+        enable_progress_bar=enable_progress_bar,
+        max_epochs=1,
     )
 
     trainer.fit(
@@ -108,7 +116,6 @@ def cross_validate_52(
     n_jobs,
     results_dir=None,
 ):
-
     ids = open(dataset_config["train"]).read().split("\n")
     ids += open(dataset_config["val"]).read().split("\n")
     ids = np.array(ids)
@@ -134,6 +141,7 @@ def cross_validate_52(
             results_dir=results_dir,
             device=device,
             i=i,
+            enable_progress_bar=n_jobs == 1,
         )
         for i, (train_idx, val_idx) in enumerate(cv_ids)
     )
