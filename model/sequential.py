@@ -7,11 +7,12 @@ from torch.nn import functional as F
 
 from model.components import (
     Decoder,
+    DualAttention,
+    DualCombinedAttention,
     EmbeddingEncoder,
     Encoder,
-    DualAttention,
-    SingleAttention,
     NoopAttention,
+    SingleAttention,
 )
 
 US = torch.tensor([0.0, 1.0])
@@ -90,7 +91,14 @@ class SequentialConversationModel(pl.LightningModule):
         self.decoders = nn.ModuleList()
 
         for i in range(num_decoders):
-            if attention_style == "dual":
+            if attention_style == "dual_combined":
+                attention = DualCombinedAttention(
+                    history_in_dim=encoder_hidden_dim,
+                    context_dim=embedding_encoder_att_dim
+                    + (encoder_hidden_dim * encoder_num_layers),
+                    att_dim=decoder_att_dim,
+                )
+            elif attention_style == "dual":
                 attention = DualAttention(
                     history_in_dim=encoder_hidden_dim,
                     context_dim=embedding_encoder_att_dim
@@ -243,6 +251,75 @@ class SequentialConversationModel(pl.LightningModule):
 
         return loss
 
+    def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
+        optimizer.zero_grad(set_to_none=True)
+
+    def validation_epoch_end(self, outputs):
+        if self.attention_style == "noop":
+            return
+
+        elif self.attention_style == "single":
+            our_scores = outputs[0]["our_attention_scores"][0].cpu()
+            our_scores_mask = outputs[0]["our_attention_scores_mask"][0].cpu()
+            their_scores_mask = outputs[0]["their_attention_scores_mask"][0].cpu()
+            predict = outputs[0]["predict"][0].cpu()
+
+            score_arr = [our_scores]
+            masks_arr = [our_scores_mask + their_scores_mask]
+            labels_arr = ["single"]
+
+        elif self.attention_style == "dual" or self.attention_style == "dual_combined":
+            our_scores = outputs[0]["our_attention_scores"][0].cpu()
+            our_scores_mask = outputs[0]["our_attention_scores_mask"][0].cpu()
+            their_scores = outputs[0]["their_attention_scores"][0].cpu()
+            their_scores_mask = outputs[0]["their_attention_scores_mask"][0].cpu()
+            predict = outputs[0]["predict"][0].cpu()
+
+            score_arr = [our_scores, their_scores]
+            masks_arr = [our_scores_mask, their_scores_mask]
+            labels_arr = ["our", "their"]
+
+        for scores, mask, label in zip(score_arr, masks_arr, labels_arr):
+            scores_show = scores[predict]
+            idxs_show = torch.arange(scores_show.shape[-1] - 1)[predict]
+            mask_show = mask
+
+            for feature_idx, feature in enumerate(self.feature_names):
+                fig, axs = plt.subplots(
+                    ncols=1, nrows=scores_show.shape[0], figsize=(10, 10)
+                )
+                for i, (s, idx) in enumerate(zip(scores_show, idxs_show)):
+                    ax = axs[i]
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                    row_data = (
+                        s[feature_idx, : idx + 1][mask_show[: idx + 1]]
+                        .unsqueeze(0)
+                        .numpy()
+                    )
+
+                    if row_data.shape[1] == 0:
+                        row_data = np.array([[0.0]])
+
+                    ax.imshow(
+                        row_data,
+                        interpolation="nearest",
+                        vmin=0 if row_data.shape[1] == 1 else None,
+                        vmax=1 if row_data.shape[1] == 1 else None,
+                        aspect="auto",
+                    )
+
+                fig.canvas.draw()
+                data = save_figure_to_numpy(fig)
+                plt.close(fig)
+
+                self.logger.experiment.add_image(
+                    f"val_alignment_{label}_{feature}",
+                    data,
+                    self.current_epoch,
+                    dataformats="HWC",
+                )
+
     def sequence(
         self,
         features,
@@ -355,6 +432,7 @@ class SequentialConversationModel(pl.LightningModule):
             our_scores_cat = []
             their_scores_cat = []
             features_pred = []
+            combined_scores_cat = []
 
             for decoder_idx, (attention, att_context, h, decoder,) in enumerate(
                 zip(
@@ -364,17 +442,20 @@ class SequentialConversationModel(pl.LightningModule):
                     self.decoders,
                 )
             ):
-                history_att, (our_scores, their_scores) = attention(
+                history_att, (our_scores, their_scores, combined_scores) = attention(
                     history_cat,
                     context=att_context,
                     our_mask=our_history_mask_timestep,
                     their_mask=their_history_mask_timestep,
                 )
+                combined_scores_cat.append(combined_scores)
 
                 if our_scores is not None:
                     our_scores_cat.append(our_scores)
                 if their_scores is not None:
                     their_scores_cat.append(their_scores)
+                if combined_scores is not None:
+                    combined_scores_cat.append(combined_scores)
 
                 decoder_in = torch.cat(
                     [history_att, embeddings_encoded_timestep_next_pred],
@@ -442,72 +523,3 @@ class SequentialConversationModel(pl.LightningModule):
             their_scores_all,
             their_history_mask,
         )
-
-    def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
-        optimizer.zero_grad(set_to_none=True)
-
-    def validation_epoch_end(self, outputs):
-        if self.attention_style == "noop":
-            return
-
-        elif self.attention_style == "single":
-            our_scores = outputs[0]["our_attention_scores"][0].cpu()
-            our_scores_mask = outputs[0]["our_attention_scores_mask"][0].cpu()
-            their_scores_mask = outputs[0]["their_attention_scores_mask"][0].cpu()
-            predict = outputs[0]["predict"][0].cpu()
-
-            score_arr = [our_scores]
-            masks_arr = [our_scores_mask + their_scores_mask]
-            labels_arr = ["single"]
-
-        elif self.attention_style == "dual":
-            our_scores = outputs[0]["our_attention_scores"][0].cpu()
-            our_scores_mask = outputs[0]["our_attention_scores_mask"][0].cpu()
-            their_scores = outputs[0]["their_attention_scores"][0].cpu()
-            their_scores_mask = outputs[0]["their_attention_scores_mask"][0].cpu()
-            predict = outputs[0]["predict"][0].cpu()
-
-            score_arr = [our_scores, their_scores]
-            masks_arr = [our_scores_mask, their_scores_mask]
-            labels_arr = ["our", "their"]
-
-        for scores, mask, label in zip(score_arr, masks_arr, labels_arr):
-            scores_show = scores[predict]
-            idxs_show = torch.arange(scores_show.shape[-1] - 1)[predict]
-            mask_show = mask
-
-            for feature_idx, feature in enumerate(self.feature_names):
-                fig, axs = plt.subplots(
-                    ncols=1, nrows=scores_show.shape[0], figsize=(10, 10)
-                )
-                for i, (s, idx) in enumerate(zip(scores_show, idxs_show)):
-                    ax = axs[i]
-                    ax.set_xticks([])
-                    ax.set_yticks([])
-                    row_data = (
-                        s[feature_idx, : idx + 1][mask_show[: idx + 1]]
-                        .unsqueeze(0)
-                        .numpy()
-                    )
-
-                    if row_data.shape[1] == 0:
-                        row_data = np.array([[0.0]])
-
-                    ax.imshow(
-                        row_data,
-                        interpolation="nearest",
-                        vmin=0 if row_data.shape[1] == 1 else None,
-                        vmax=1 if row_data.shape[1] == 1 else None,
-                        aspect="auto",
-                    )
-
-                fig.canvas.draw()
-                data = save_figure_to_numpy(fig)
-                plt.close(fig)
-
-                self.logger.experiment.add_image(
-                    f"val_alignment_{label}_{feature}",
-                    data,
-                    self.current_epoch,
-                    dataformats="HWC",
-                )

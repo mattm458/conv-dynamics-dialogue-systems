@@ -104,7 +104,7 @@ class DualAttention(torch.jit.ScriptModule):
     @torch.jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
-    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor]]]:
+    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
         our_att, our_scores = self.our_attention(
             history,
             context=context,
@@ -117,7 +117,58 @@ class DualAttention(torch.jit.ScriptModule):
             mask=~their_mask.unsqueeze(-1),
         )
 
-        return torch.cat([our_att, their_att], dim=-1), (our_scores, their_scores)
+        return torch.cat([our_att, their_att], dim=-1), (our_scores, their_scores, None)
+
+
+class DualCombinedAttention(torch.jit.ScriptModule):
+    def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
+        super().__init__()
+
+        self.our_attention = Attention(
+            history_in_dim=history_in_dim,
+            context_dim=context_dim,
+            att_dim=att_dim,
+        )
+        self.their_attention = Attention(
+            history_in_dim=history_in_dim,
+            context_dim=context_dim,
+            att_dim=att_dim,
+        )
+        self.combined_attention = Attention(
+            history_in_dim=history_in_dim, context_dim=context_dim, att_dim=att_dim
+        )
+
+    @torch.jit.script_method
+    def forward(
+        self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
+    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
+        our_att, our_scores = self.our_attention(
+            history,
+            context=context,
+            mask=~our_mask.unsqueeze(-1),
+        )
+
+        their_att, their_scores = self.their_attention(
+            history,
+            context=context,
+            mask=~their_mask.unsqueeze(-1),
+        )
+
+        our_att = our_att.unsqueeze(1)
+        their_att = their_att.unsqueeze(1)
+        combined_att_in = torch.cat([our_att, their_att], dim=1)
+
+        combined_att, combined_att_scores = self.combined_attention(
+            combined_att_in,
+            context=context,
+            mask=torch.zeros(
+                (combined_att_in.shape[0], combined_att_in.shape[1], 1),
+                dtype=torch.bool,
+                device=combined_att_in.device,
+            ),
+        )
+
+        return combined_att, (our_scores, their_scores, combined_att_scores[:,0])
 
 
 class SingleAttention(torch.jit.ScriptModule):
@@ -133,22 +184,22 @@ class SingleAttention(torch.jit.ScriptModule):
     @torch.jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
-    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor]]]:
+    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
         att, scores = self.attention(
             history,
             context=context,
             mask=~(our_mask + their_mask).unsqueeze(-1),
         )
 
-        return att, (scores, None)
+        return att, (scores, None, None)
 
 
 class NoopAttention(torch.jit.ScriptModule):
     @torch.jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
-    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor]]]:
-        return history[:, -1], (None, None)
+    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
+        return history[:, -1], (None, None, None)
 
 
 class EmbeddingEncoder(torch.jit.ScriptModule):
@@ -159,6 +210,7 @@ class EmbeddingEncoder(torch.jit.ScriptModule):
         encoder_num_layers: int,
         encoder_dropout: float,
         attention_dim: int,
+        pack_sequence=True,
     ):
         super().__init__()
 
@@ -166,6 +218,7 @@ class EmbeddingEncoder(torch.jit.ScriptModule):
 
         self.encoder_out_dim = encoder_out_dim
         self.encoder_num_layers = encoder_num_layers
+        self.pack_sequence = pack_sequence
 
         self.encoder = nn.GRU(
             embedding_dim,
@@ -187,18 +240,23 @@ class EmbeddingEncoder(torch.jit.ScriptModule):
     def forward(self, encoder_in: Tensor, lengths: Tensor) -> Tuple[Tensor, Tensor]:
         batch_size = encoder_in.shape[0]
 
-        encoder_in = nn.utils.rnn.pack_padded_sequence(
-            encoder_in,
-            lengths.cpu(),
-            batch_first=True,
-            enforce_sorted=False,
-        )
+        if self.pack_sequence:
+            encoder_in_packed = nn.utils.rnn.pack_padded_sequence(
+                encoder_in,
+                lengths.cpu(),
+                batch_first=True,
+                enforce_sorted=False,
+            )
 
-        encoder_out, h = self.encoder(encoder_in)
+            encoder_out_tmp, h = self.encoder(encoder_in_packed)
+
+            encoder_out, _ = nn.utils.rnn.pad_packed_sequence(
+                encoder_out_tmp, batch_first=True
+            )
+        else:
+            encoder_out, h = self.encoder(encoder_in)
 
         h = h.swapaxes(0, 1).reshape(batch_size, -1)
-
-        encoder_out, _ = nn.utils.rnn.pad_packed_sequence(encoder_out, batch_first=True)
 
         return self.attention(
             history=encoder_out,
@@ -395,7 +453,11 @@ class ExternalAttentionDecoder(nn.Module):
 
         self.dropout = nn.Dropout(decoder_dropout)
 
-        linear_arr = [nn.Linear(hidden_dim, output_dim)]
+        linear_arr = [
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ELU(),
+            nn.Linear(hidden_dim, output_dim),
+        ]
         if activation == "tanh":
             print("Decoder: Tanh activation")
             linear_arr.append(nn.Tanh())

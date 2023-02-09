@@ -27,8 +27,7 @@ def __get_transcript_paths(fisher_dir):
                 if ".txt" not in file:
                     continue
                 transcript_id = file[:-4]
-                transcript_paths.append(
-                    (transcript_id, path.join(filepath, file)))
+                transcript_paths.append((transcript_id, path.join(filepath, file)))
 
     return transcript_paths
 
@@ -128,12 +127,10 @@ def __save_embeddings(transcript, tokenizer, vec, embedding_out_dir):
         embeddings_all.append(vectorized)
         lengths.append(len(vectorized))
 
-    embeddings_all = torch.nn.utils.rnn.pad_sequence(
-        embeddings_all, batch_first=True)
+    embeddings_all = torch.nn.utils.rnn.pad_sequence(embeddings_all, batch_first=True)
     lengths = torch.LongTensor(lengths)
 
-    torch.save(embeddings_all, path.join(
-        embedding_out_dir, f"{id}-embeddings.pt"))
+    torch.save(embeddings_all, path.join(embedding_out_dir, f"{id}-embeddings.pt"))
     torch.save(lengths, path.join(embedding_out_dir, f"{id}-lengths.pt"))
 
 
@@ -146,10 +143,29 @@ def __do_feature_extract_and_embedding(
     return results
 
 
-FEATURES = ['duration', 'duration_vcd', 'pitch_mean', 'pitch_5', 'pitch_95',
-            'pitch_range', 'intensity_mean', 'intensity_mean_vcd', 'jitter',
-            'shimmer', 'nhr', 'nhr_vcd', 'rate', 'rate_vcd']
+FEATURES = [
+    "duration",
+    "duration_vcd",
+    "pitch_mean",
+    "pitch_5",
+    "pitch_95",
+    "pitch_range",
+    "pitch_mean_log",
+    "pitch_5_log",
+    "pitch_95_log",
+    "pitch_range_log",
+    "intensity_mean",
+    "intensity_mean_vcd",
+    "jitter",
+    "shimmer",
+    "nhr",
+    "nhr_vcd",
+    "rate",
+    "rate_vcd",
+]
+
 FEATURES_ZSCORE = [f"{x}_zscore" for x in FEATURES]
+FEATURES_NORM_RANGE = [f"{x}_norm_range" for x in FEATURES]
 
 
 def run(fisher_dir, embedding_out_dir):
@@ -159,8 +175,8 @@ def run(fisher_dir, embedding_out_dir):
 
     print("Parsing transcripts...")
     transcript_paths = __get_transcript_paths(fisher_dir)
-    transcripts = [__parse_transcript(id, p)
-                   for id, p in tqdm(transcript_paths)]
+
+    transcripts = [__parse_transcript(id, p) for id, p in tqdm(transcript_paths)]
 
     print("Feature extraction and embeddings...")
     do = partial(
@@ -170,35 +186,104 @@ def run(fisher_dir, embedding_out_dir):
         vec=vec,
         embedding_out_dir=embedding_out_dir,
     )
-    results = pqdm(transcripts, do, n_jobs=16)
+    results = pqdm(transcripts, do, n_jobs=10, exception_behaviour="immediate")
 
     print("Writing to CSV...")
     results_all = list(itertools.chain(*results))
     df = pd.DataFrame(results_all)
 
-    df[FEATURES_ZSCORE] = df.groupby(['id', 'speaker'])[FEATURES].transform(
-        lambda x: (x-x.mean())/x.std())
-
-    df = df.sort_values(['id', 'start'])
+    df = df.sort_values(["id", "start"]).dropna()
     train_ids, test_ids = train_test_split(
-        df.id.unique(), random_state=9001, train_size=0.8)
-    test_ids, val_ids = train_test_split(
-        test_ids, test_size=0.5, random_state=9001)
+        df.id.unique(), random_state=9001, train_size=0.8
+    )
+    test_ids, val_ids = train_test_split(test_ids, test_size=0.5, random_state=9001)
 
-    df[df.id.isin(train_ids)].to_csv(
-        "transcript-train.csv",
+    df_train = df[df.id.isin(train_ids)].reset_index(drop=True)
+    df_test = df[df.id.isin(test_ids)].reset_index(drop=True)
+    df_val = df[df.id.isin(val_ids)].reset_index(drop=True)
+
+    def do_norm_range(x):
+        medians = x.median()
+        stds = x.std()
+
+        T_MIN = -1
+        T_MAX = 1
+
+        minimums = medians - (3 * stds)
+        maximums = medians + (3 * stds)
+
+        x = ((x - minimums) / (maximums - minimums)) * (T_MAX - T_MIN) + T_MIN
+        return x
+
+    df_train = pd.concat(
+        [
+            df_train,
+            pd.DataFrame(
+                df_train.groupby(["id", "speaker"], group_keys=False)[FEATURES]
+                .apply(lambda x: (x - x.mean()) / x.std())
+                .values,
+                columns=FEATURES_ZSCORE,
+            ),
+            pd.DataFrame(
+                df_train.groupby(["id", "speaker"], group_keys=False)[FEATURES]
+                .apply(do_norm_range)
+                .values,
+                columns=FEATURES_NORM_RANGE,
+            ),
+        ],
+        axis=1,
+    )
+    df_test = pd.concat(
+        [
+            df_test,
+            pd.DataFrame(
+                df_test.groupby(["id", "speaker"], group_keys=False)[FEATURES]
+                .apply(lambda x: (x - x.mean()) / x.std())
+                .values,
+                columns=FEATURES_ZSCORE,
+            ),
+            pd.DataFrame(
+                df_test.groupby(["id", "speaker"], group_keys=False)[FEATURES]
+                .apply(do_norm_range)
+                .values,
+                columns=FEATURES_NORM_RANGE,
+            ),
+        ],
+        axis=1,
+    )
+    df_val = pd.concat(
+        [
+            df_val,
+            pd.DataFrame(
+                df_val.groupby(["id", "speaker"], group_keys=False)[FEATURES]
+                .apply(lambda x: (x - x.mean()) / x.std())
+                .values,
+                columns=FEATURES_ZSCORE,
+            ),
+            pd.DataFrame(
+                df_val.groupby(["id", "speaker"], group_keys=False)[FEATURES]
+                .apply(do_norm_range)
+                .values,
+                columns=FEATURES_NORM_RANGE,
+            ),
+        ],
+        axis=1,
+    )
+
+    df_train.to_csv(
+        "transcript-train-2.csv",
         sep="|",
         quoting=csv.QUOTE_NONE,
         index=None,
     )
-    df[df.id.isin(val_ids)].to_csv(
-        "transcript-val.csv",
+    df_val.to_csv(
+        "transcript-val-2.csv",
         sep="|",
         quoting=csv.QUOTE_NONE,
         index=None,
     )
-    df[df.id.isin(test_ids)].to_csv(
-        "transcript-test.csv",
+    df_test.to_csv(
+        "transcript-test-2.csv",
         sep="|",
         quoting=csv.QUOTE_NONE,
         index=None,

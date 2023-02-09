@@ -37,8 +37,12 @@ class ConversationDataset(Dataset):
         conv_id = self.conversation_ids[i]
         conv_data = torch.load(path.join(self.conversation_data_dir, f"{conv_id}.pt"))
 
-        features = conv_data["features"]
-        speakers = conv_data["speakers"]
+        speakers = conv_data["speakers_one_hot"]
+        features = []
+        for feature in self.features:
+            features.append(conv_data[feature])
+
+        features = torch.stack(features, dim=1)
 
         embeddings = torch.load(
             path.join(self.embeddings_dir, f"{conv_id}-embeddings.pt")
