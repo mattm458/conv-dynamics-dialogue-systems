@@ -2,6 +2,8 @@
 fisher-embeddings
 fisher-ipu-data
 
+results*
+
 # Custom ML project exclusions
 lightning_logs/
 *.ipynb
