@@ -80,6 +80,8 @@ class WindowedConversationModel(pl.LightningModule):
         else:
             print("WindowedConversationModel: Not encoding speaker")
 
+        print(f"WindowedCoversationModel: Encoder input dimension is {encoder_in_dim}")
+
         self.encoder = nn.GRU(
             encoder_in_dim,
             encoder_hidden_dim // 2,
@@ -108,6 +110,8 @@ class WindowedConversationModel(pl.LightningModule):
             print(
                 "WindowedConversationModel: Decoder context does not include upcoming speaker"
             )
+
+        print(f"WindowedConversationModel: Decoder input dimension is {decoder_in_dim}")
 
         self.decoders = nn.ModuleList(
             [
