@@ -174,14 +174,16 @@ class SequentialConversationModel(pl.LightningModule):
                 on_step=False,
             )
 
-        return {
-            "loss": loss,
-            "our_attention_scores": our_scores,
-            "our_attention_scores_mask": our_scores_mask,
-            "their_attention_scores": their_scores,
-            "their_attention_scores_mask": their_scores_mask,
-            "predict": predict,
-        }
+        return loss
+
+        # return {
+        #     "loss": loss,
+        #     #"our_attention_scores": our_scores,
+        #     #"our_attention_scores_mask": our_scores_mask,
+        #     #"their_attention_scores": their_scores,
+        #     #"their_attention_scores_mask": their_scores_mask,
+        #     #"predict": predict,
+        # }
 
     # def training_step_end(self, outputs):
     #     if self.global_step % 500 == 0:
@@ -243,7 +245,7 @@ class SequentialConversationModel(pl.LightningModule):
         optimizer.zero_grad(set_to_none=True)
 
     def validation_epoch_end(self, outputs):
-        return 
+        return
         if self.attention_style == "noop":
             return
 
