@@ -28,26 +28,73 @@ def _do_cross_validate_52(
     i,
     enable_progress_bar=False,
 ):
-    torch.set_float32_matmul_precision("high")
-
     name = f"{training_config['name']}_{i}"
 
+    # If this specific fold has already completed, we don't have anything to do. We know a
+    # fold is complete because when it is finished, we create a file with the fold's name
+    # in the results directory. Check for that file below:
+    results_dir_contents = os.listdir(results_dir)
+    if name in results_dir_contents:
+        print(f"Fold {name} already completed, skipping...")
+        return
+
+    # By default, we aren't loading an existing checkpoint. However, if a previous training run
+    # was interrupted for this fold, we'll use checkpoint_path to specify the checkpoint to resume
+    # from.
+    checkpoint_path = None
+    if "lightning_logs" in results_dir_contents and name in os.listdir(
+        path.join(results_dir, "lightning_logs")
+    ):
+        # List the contents of the Lightning fold directory
+        fold_dir = path.join(results_dir, "lightning_logs", name)
+
+        # Contents of the directory have the name "version_<num>". Find the largest
+        # version number.
+        latest_run = max([int(x.split("_")[1]) for x in os.listdir(fold_dir)])
+
+        # The models are configured to save checkpoints of the 5 best results.
+        # Find the latest checkpoint by sorting them by their epoch number.
+        checkpoint_dir = path.join(
+            results_dir, "lightning_logs", name, f"version_{latest_run}", "checkpoints"
+        )
+        latest_checkpoint = sorted(
+            os.listdir(checkpoint_dir),
+            key=lambda x: int(
+                x.replace("checkpoint-epoch=", "").split("-")[0]
+            ),  # Example filename: checkpoint-epoch=222-validation_loss_l1=0.05359.ckpt
+            reverse=True,
+        )[0]
+
+        # Assemble the path to the checkpoint and save it for later
+        checkpoint_path = path.join(
+            results_dir,
+            "lightning_logs",
+            name,
+            f"version_{latest_run}",
+            "checkpoints",
+            latest_checkpoint,
+        )
+
+        print("Resuming training from checkpoint", checkpoint_path)
+
+    torch.set_float32_matmul_precision("high")
+
+    # Set up Lightning callbacks and logger
     model_checkpoint = ModelCheckpoint(
         save_top_k=5,
         monitor="validation_loss",
         mode="min",
         filename="checkpoint-{epoch}-{validation_loss_l1:.5f}",
     )
-
     early_stopping = EarlyStopping(
         monitor="validation_loss",
         patience=training_config["early_stopping_patience"],
         verbose=False,
         mode="min",
     )
-
     logger = TensorBoardLogger(path.join(results_dir, "lightning_logs"), name=name)
 
+    # Load the datasets and dataloaders
     train_dataset = ConversationDataset(
         train_ids,
         embeddings_dir="/home/mmcneil/datasets/fisher_corpus/fisher-embeddings",
@@ -81,6 +128,7 @@ def _do_cross_validate_52(
         multiprocessing_context=get_context("loky"),
     )
 
+    # Create a new instance of the model based on the config
     model = get_model(
         model_config=model_config,
         training_config=training_config,
@@ -102,6 +150,7 @@ def _do_cross_validate_52(
         model,
         train_dataloaders=train_dataloader,
         val_dataloaders=val_dataloader,
+        ckpt_path=checkpoint_path,
     )
 
     with open(path.join(results_dir, name), "w") as outfile:
@@ -114,16 +163,22 @@ def cross_validate_52(
     model_config,
     device,
     n_jobs,
-    results_dir=None,
+    resume=None,
 ):
     ids = open(dataset_config["train"]).read().split("\n")
     ids += open(dataset_config["val"]).read().split("\n")
     ids = np.array(ids)
 
-    if results_dir is None:
+    if resume is None:
         results_dir = f"results_{training_config['name']} {datetime.datetime.now()}"
+        os.mkdir(results_dir)
+    else:
+        results_dir = resume
 
-    os.mkdir(results_dir)
+        if training_config["name"] not in results_dir:
+            raise Exception(
+                f"Attempted to resume training on an incorrect configuration! Configuration name: {training_config['name']}, directory name: {resume}"
+            )
 
     cv_ids = []
     for i in range(5):

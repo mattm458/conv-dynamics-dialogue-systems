@@ -32,7 +32,8 @@ def main(ctx, config, device):
     type=click.Choice(["standard", "cv"]),
 )
 @click.option("--n-jobs", required=False, default=2, type=int)
-def train(ctx, method, n_jobs):
+@click.option("--resume", required=False, type=str)
+def train(ctx, method, n_jobs, resume):
     if method == "cv":
         cross_validate_52(
             dataset_config=ctx.obj["config"]["dataset"],
@@ -40,7 +41,7 @@ def train(ctx, method, n_jobs):
             model_config=ctx.obj["config"]["model"],
             device=ctx.obj["device"],
             n_jobs=n_jobs,
-            results_dir=None,
+            resume=resume,
         )
     elif method == "standard":
         raise Exception("Standard training method not implemented!")
