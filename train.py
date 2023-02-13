@@ -84,7 +84,7 @@ def _do_cross_validate_52(
         save_top_k=5,
         monitor="validation_loss",
         mode="min",
-        filename="checkpoint-{epoch}-{validation_loss_l1:.5f}",
+        filename="checkpoint-{epoch}-{validation_loss:.5f}",
     )
     early_stopping = EarlyStopping(
         monitor="validation_loss",
