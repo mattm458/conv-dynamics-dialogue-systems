@@ -26,6 +26,8 @@ def _do_cross_validate_52(
     results_dir,
     device,
     i,
+    embeddings_dir,
+    conversation_data_dir,
     enable_progress_bar=False,
 ):
     name = f"{training_config['name']}_{i}"
@@ -97,8 +99,8 @@ def _do_cross_validate_52(
     # Load the datasets and dataloaders
     train_dataset = ConversationDataset(
         train_ids,
-        embeddings_dir="/home/mmcneil/datasets/fisher_corpus/fisher-embeddings",
-        conversation_data_dir="/home/mmcneil/datasets/fisher_corpus/fisher-ipu-data",
+        embeddings_dir=embeddings_dir,
+        conversation_data_dir=conversation_data_dir,
         features=features,
     )
     train_dataloader = DataLoader(
@@ -113,8 +115,8 @@ def _do_cross_validate_52(
     )
     val_dataset = ConversationDataset(
         val_ids,
-        embeddings_dir="/home/mmcneil/datasets/fisher_corpus/fisher-embeddings",
-        conversation_data_dir="/home/mmcneil/datasets/fisher_corpus/fisher-ipu-data",
+        embeddings_dir=embeddings_dir,
+        conversation_data_dir=conversation_data_dir,
         features=features,
     )
     val_dataloader = DataLoader(
@@ -163,6 +165,8 @@ def cross_validate_52(
     model_config,
     device,
     n_jobs,
+    embeddings_dir,
+    conversation_data_dir,
     resume=None,
 ):
     ids = open(dataset_config["train"]).read().split("\n")
@@ -196,6 +200,8 @@ def cross_validate_52(
             results_dir=results_dir,
             device=device,
             i=i,
+            embeddings_dir=embeddings_dir,
+            conversation_data_dir=conversation_data_dir,
             enable_progress_bar=n_jobs == 1,
         )
         for i, (train_idx, val_idx) in enumerate(cv_ids)

@@ -33,7 +33,9 @@ def main(ctx, config, device):
 )
 @click.option("--n-jobs", required=False, default=2, type=int)
 @click.option("--resume", required=False, type=str)
-def train(ctx, method, n_jobs, resume):
+@click.option("--embeddings-dir", required=True, type=str)
+@click.option("--conversation-data-dir", required=True, type=str)
+def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
     if method == "cv":
         cross_validate_52(
             dataset_config=ctx.obj["config"]["dataset"],
@@ -42,6 +44,8 @@ def train(ctx, method, n_jobs, resume):
             device=ctx.obj["device"],
             n_jobs=n_jobs,
             resume=resume,
+            embeddings_dir=embeddings_dir,
+            conversation_data_dir=conversation_data_dir,
         )
     elif method == "standard":
         raise Exception("Standard training method not implemented!")
