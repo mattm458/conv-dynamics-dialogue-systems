@@ -3,11 +3,8 @@
 import json
 
 import click
-import pandas as pd
 
 from train import cross_validate_52
-
-# from util.args import args
 
 
 @click.group()
