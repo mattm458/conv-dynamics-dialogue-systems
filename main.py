@@ -4,6 +4,7 @@ import json
 
 import click
 
+from stats import do_stats
 from train import cross_validate_52
 
 
@@ -51,6 +52,31 @@ def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
 
 @main.command()
 @click.pass_context
+@click.option(
+    "--method",
+    required=True,
+    default="standard",
+    type=click.Choice(["standard", "cv"]),
+)
+@click.option("--n-jobs", required=False, default=2, type=int)
+@click.option("--embeddings-dir", required=True, type=str)
+@click.option("--conversation-data-dir", required=True, type=str)
+def stats(ctx, method, n_jobs, embeddings_dir, conversation_data_dir):
+    do_stats(
+        dataset_config=ctx.obj["config"]["dataset"],
+        training_config=ctx.obj["config"]["training"],
+        model_config=ctx.obj["config"]["model"],
+        device=ctx.obj["device"],
+        method=method,
+        n_jobs=n_jobs,
+        embeddings_dir=embeddings_dir,
+        conversation_data_dir=conversation_data_dir,
+    )
+    pass
+
+
+@main.command()
+@click.pass_context
 def test(ctx):
     pass
 
@@ -69,17 +95,3 @@ def torchscript(ctx):
 
 if __name__ == "__main__":
     main(obj={})
-
-# if __name__ == "__main__":
-#     if args.mode == "preprocess":
-#         print("Preprocessing")
-#         from data.preprocessing import preprocess
-
-#         preprocess(args.dataset, args.dataset_dir, args.embedding_out_dir)
-#     elif args.mode == "model":
-#         if args.model_mode == "train":
-#             print("Training")
-#         elif args.model_mode == "test":
-#             print("Testing")
-#         elif args.model_mode == "torchscript":
-#             print("Exporting torchscript")
