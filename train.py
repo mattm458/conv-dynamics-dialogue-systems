@@ -3,7 +3,6 @@ import os
 from os import path
 
 import lightning.pytorch as pl
-from util.cv import get_52_cv_ids
 import numpy as np
 import torch
 from joblib import Parallel, delayed
@@ -16,6 +15,7 @@ from torch.utils.data.dataloader import DataLoader
 from data.dataloader import collate_fn
 from data.dataset import ConversationDataset
 from model.config import get_model
+from util.cv import get_52_cv_ids, get_cv_ids
 
 
 def _do_cross_validate_52(
@@ -170,9 +170,7 @@ def cross_validate_52(
     conversation_data_dir,
     resume=None,
 ):
-    ids = open(dataset_config["train"]).read().split("\n")
-    ids += open(dataset_config["val"]).read().split("\n")
-    ids = np.array(ids)
+    ids = get_cv_ids(dataset_config)
 
     if resume is None:
         results_dir = f"results_{training_config['name']} {datetime.datetime.now()}"

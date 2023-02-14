@@ -1,4 +1,11 @@
+import numpy as np
 from sklearn.model_selection import KFold
+
+
+def get_cv_ids(dataset_config):
+    ids = open(dataset_config["train"]).read().split("\n")
+    ids += open(dataset_config["val"]).read().split("\n")
+    return np.array(ids)
 
 
 def get_52_cv_ids(ids):
