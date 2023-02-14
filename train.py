@@ -3,6 +3,7 @@ import os
 from os import path
 
 import lightning.pytorch as pl
+from util.cv import get_52_cv_ids
 import numpy as np
 import torch
 from joblib import Parallel, delayed
@@ -184,11 +185,7 @@ def cross_validate_52(
                 f"Attempted to resume training on an incorrect configuration! Configuration name: {training_config['name']}, directory name: {resume}"
             )
 
-    cv_ids = []
-    for i in range(5):
-        kfold = KFold(n_splits=2, shuffle=True, random_state=i)
-        for train_idx, val_idx in kfold.split(ids):
-            cv_ids.append((train_idx, val_idx))
+    cv_ids = get_52_cv_ids(ids)
 
     Parallel(n_jobs=n_jobs, backend="loky")(
         delayed(_do_cross_validate_52)(
