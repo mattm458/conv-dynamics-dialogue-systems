@@ -50,7 +50,7 @@ def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
     pass
 
 
-@main.command()
+@main.command(help="Produce the statistics and graphs used in the paper.")
 @click.pass_context
 @click.option(
     "--method",
@@ -58,14 +58,16 @@ def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
     default="standard",
     type=click.Choice(["standard", "cv"]),
 )
+@click.option("--results-dir", required=True, type=str)
 @click.option("--n-jobs", required=False, default=2, type=int)
 @click.option("--embeddings-dir", required=True, type=str)
 @click.option("--conversation-data-dir", required=True, type=str)
-def stats(ctx, method, n_jobs, embeddings_dir, conversation_data_dir):
+def stats(ctx, method, results_dir, n_jobs, embeddings_dir, conversation_data_dir):
     do_stats(
         dataset_config=ctx.obj["config"]["dataset"],
         training_config=ctx.obj["config"]["training"],
         model_config=ctx.obj["config"]["model"],
+        results_dir=results_dir,
         device=ctx.obj["device"],
         method=method,
         n_jobs=n_jobs,
