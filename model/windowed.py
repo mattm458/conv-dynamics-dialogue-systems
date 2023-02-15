@@ -463,4 +463,4 @@ class WindowedConversationModel(pl.LightningModule):
 
             seq.update(autoregress_input=features_pred)
 
-        return {"pred": seq.get_all(), "y": features}
+        return {"y_hat": seq.get_all(), "y": features, "predict": predict}

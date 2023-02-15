@@ -2,14 +2,12 @@ import os
 from os import path
 
 import lightning.pytorch as pl
-import numpy as np
+import pandas as pd
 import torch
 from joblib import Parallel, delayed
 from joblib.externals.loky.backend.context import get_context
 from lightning import pytorch as pl
-from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
-from lightning.pytorch.loggers import TensorBoardLogger
-from sklearn.model_selection import KFold
+from torch.nn import functional as F
 from torch.utils.data.dataloader import DataLoader
 
 from data.dataloader import collate_fn
@@ -30,10 +28,14 @@ def _do_stats(
     embeddings_dir,
     conversation_data_dir,
 ):
-    name = f"{training_config['name']}_{i}"
+    name = training_config["name"]
+    name_idx = f"{name}_{i}"
+
+    # if name_idx not in os.listdir(results_dir):
+    #     return
 
     latest_version = get_highest_version(
-        os.listdir(path.join(results_dir, "lightning_logs", name))
+        os.listdir(path.join(results_dir, "lightning_logs", name_idx))
     )
 
     best_checkpoint_filename = get_best_checkpoint(
@@ -41,7 +43,7 @@ def _do_stats(
             path.join(
                 results_dir,
                 "lightning_logs",
-                name,
+                name_idx,
                 f"version_{latest_version}",
                 "checkpoints",
             )
@@ -51,7 +53,7 @@ def _do_stats(
     best_checkpoint_path = path.join(
         results_dir,
         "lightning_logs",
-        name,
+        name_idx,
         f"version_{latest_version}",
         "checkpoints",
         best_checkpoint_filename,
@@ -90,8 +92,7 @@ def _do_stats(
         devices=[device],
         auto_lr_find=False,
         logger=None,
-        enable_progress_bar=False,  # enable_progress_bar,
-        max_epochs=1000,
+        enable_progress_bar=True,
     )
 
     results = trainer.predict(
@@ -100,7 +101,32 @@ def _do_stats(
         ckpt_path=best_checkpoint_path,
     )
 
-    return
+    y_hats = [x["y_hat"] for x in results]
+    ys = [x["y"] for x in results]
+    predicts = [x["predict"] for x in results]
+
+    longest_y_hat = max([x.shape[1] for x in y_hats])
+    longest_y = max([x.shape[1] for x in ys])
+    longest_predict = max([x.shape[1] for x in predicts])
+
+    y_hats_pad = [F.pad(x, (0, 0, 0, longest_y_hat - x.shape[1])) for x in y_hats]
+    ys_pad = [F.pad(x, (0, 0, 0, longest_y - x.shape[1])) for x in ys]
+    predicts_pad = [F.pad(x, (0, longest_predict - x.shape[1])) for x in predicts]
+
+    y_hats_cat = torch.cat(y_hats_pad, dim=0)
+    ys_cat = torch.cat(ys_pad, dim=0)
+    predicts_cat = torch.cat(predicts_pad, dim=0)
+
+    return {
+        "name": name,
+        "fold": i,
+        "l1_smooth_loss_autoregress": F.smooth_l1_loss(
+            y_hats_cat[predicts_cat], ys_cat[:, 1:][predicts_cat]
+        ).item(),
+        "mse_loss_autoregress": F.mse_loss(
+            y_hats_cat[predicts_cat], ys_cat[:, 1:][predicts_cat]
+        ).item(),
+    }
 
 
 def do_stats(
@@ -109,7 +135,6 @@ def do_stats(
     model_config,
     results_dir,
     device,
-    method,
     n_jobs,
     embeddings_dir,
     conversation_data_dir,
@@ -117,19 +142,23 @@ def do_stats(
     ids = get_cv_ids(dataset_config)
     cv_ids = get_52_cv_ids(ids)
 
-    for i, (_, val_ids) in enumerate(cv_ids):
-        val_ids = ids[val_ids]
-        _do_stats(
-            training_config,
-            model_config,
-            val_ids,
-            features=dataset_config["features"],
-            results_dir=results_dir,
-            device=device,
-            i=i,
-            embeddings_dir=embeddings_dir,
-            conversation_data_dir=conversation_data_dir,
+    data = (
+        pd.DataFrame(
+            Parallel(n_jobs=n_jobs, backend="loky")(
+                delayed(_do_stats)(
+                    training_config,
+                    model_config,
+                    val_ids=ids[val_idx],
+                    features=dataset_config["features"],
+                    results_dir=results_dir,
+                    device=device,
+                    i=i,
+                    embeddings_dir=embeddings_dir,
+                    conversation_data_dir=conversation_data_dir,
+                )
+                for i, (_, val_idx) in enumerate(cv_ids)
+            )
         )
-        break
-
-    return
+        .set_index("name")
+        .to_csv(f"{training_config['name']}.csv")
+    )
