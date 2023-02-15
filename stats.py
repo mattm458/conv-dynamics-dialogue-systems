@@ -118,6 +118,7 @@ def do_stats(
     cv_ids = get_52_cv_ids(ids)
 
     for i, (_, val_ids) in enumerate(cv_ids):
+        val_ids = ids[val_ids]
         _do_stats(
             training_config,
             model_config,
