@@ -133,7 +133,6 @@ class WindowedConversationModel(pl.LightningModule):
     #             self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
     def forward(self, features, context):
-
         encoder_in = features
         encoded, _ = self.encoder(encoder_in)
 
@@ -382,3 +381,86 @@ class WindowedConversationModel(pl.LightningModule):
                 pass
 
             seq.update(autoregress_input=features_pred.detach().clone())
+
+    def predict_step(self, batch, batch_idx):
+        (
+            features,
+            speakers,
+            embeddings,
+            embeddings_len,
+            predict,
+            conv_len,
+            batch_id,
+            y,
+            y_len,
+        ) = batch
+
+        batch_size = features.shape[0]
+
+        embeddings = nn.utils.rnn.pad_sequence(
+            torch.split(embeddings, conv_len.tolist()), batch_first=True
+        )
+        embeddings_len = nn.utils.rnn.pad_sequence(
+            torch.split(embeddings_len, conv_len.tolist()), batch_first=True
+        )
+
+        seq = SequentialWindowIterator(
+            features=features,
+            embeddings=embeddings,
+            embeddings_len=embeddings_len,
+            speakers=speakers,
+            window_size=self.window_size,
+            predict=predict,
+            keep_all=True,
+        )
+
+        while seq.has_next():
+            (
+                features_window,
+                speakers_window,
+                embeddings_window,
+                embeddings_len_window,
+                features_y,
+                speakers_next,
+                embeddings_next,
+                embeddings_len_next,
+                predict_timestep,
+            ) = seq.next()
+
+            if not predict_timestep.any():
+                seq.update()
+                continue
+
+            encoder_in = [seq.next_autoregress()]
+
+            if self.encode_embeddings:
+                embeddings_window_encoded, _ = self.embedding_encoder(
+                    embeddings_window, lengths=embeddings_len_window
+                )
+                embeddings_window_encoded = torch.stack(
+                    torch.split(embeddings_window_encoded, batch_size, 0), dim=1
+                )
+
+                encoder_in.append(embeddings_window_encoded)
+
+            if self.encode_speaker:
+                encoder_in.append(speakers_window)
+
+            encoder_in = torch.concat(encoder_in, dim=-1)
+
+            context = []
+
+            if self.decoder_context_embeddings:
+                embeddings_upcoming_encoded, _ = self.embedding_encoder(
+                    embeddings_next, lengths=embeddings_len_next
+                )
+                context.append(embeddings_upcoming_encoded)
+
+            if self.decoder_context_speaker:
+                context.append(speakers_next)
+
+            features_pred = self(encoder_in, context=context)
+
+            seq.update(autoregress_input=features_pred)
+
+        return seq.get_all()

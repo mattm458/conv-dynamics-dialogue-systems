@@ -13,6 +13,7 @@ class SequentialWindowIterator:
         embeddings_len: Tensor,
         speakers: Tensor,
         predict: Tensor,
+        keep_all: Tensor = False,
     ):
         batch_size = features.shape[0]
         num_features = features.shape[-1]
@@ -68,6 +69,10 @@ class SequentialWindowIterator:
 
         self.predict_split = [x.squeeze(1) for x in torch.split(predict, 1, 1)]
 
+        self.keep_all = keep_all
+        if keep_all:
+            self.window_all = []
+
     def update(
         self,
         autoregress_input: Optional[Tensor] = None,
@@ -86,8 +91,13 @@ class SequentialWindowIterator:
             x[predict] = autoregress_input[predict].unsqueeze(1).type(x.dtype)
 
             self.features_window_autoregress.append(x)
+            if self.keep_all:
+                self.window_all.append(x)
         else:
             self.features_window_autoregress.append(self.features_split[i])
+            if self.keep_all:
+                self.window_all.append(self.features_split[i])
+
         self.features_window_autoregress.pop(0)
 
         self.embeddings_window.append(self.embeddings_split[i])
@@ -141,3 +151,9 @@ class SequentialWindowIterator:
 
     def next_autoregress(self) -> Tensor:
         return torch.cat(self.features_window_autoregress, dim=1)
+
+    def get_all(self) -> Optional[Tensor]:
+        if not self.keep_all:
+            return None
+
+        return torch.cat(self.window_all, dim=1)
