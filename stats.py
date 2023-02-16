@@ -31,6 +31,14 @@ def _do_stats(
     name = training_config["name"]
     name_idx = f"{name}_{i}"
 
+    if name_idx not in os.listdir(path.join(results_dir, "lightning_logs")):
+        return {
+            "name": name,
+            "fold": i,
+            "l1_smooth_loss_autoregress": None,
+            "mse_loss_autoregress": None,
+        }
+
     # if name_idx not in os.listdir(results_dir):
     #     return
 
@@ -117,7 +125,7 @@ def _do_stats(
     ys_cat = torch.cat(ys_pad, dim=0)
     predicts_cat = torch.cat(predicts_pad, dim=0)
 
-    return {
+    output = {
         "name": name,
         "fold": i,
         "l1_smooth_loss_autoregress": F.smooth_l1_loss(
@@ -127,6 +135,13 @@ def _do_stats(
             y_hats_cat[predicts_cat], ys_cat[:, 1:][predicts_cat]
         ).item(),
     }
+
+    for j, feature in enumerate(features):
+        output[f"{feature}_l1_smooth_loss_autoregress"] = F.smooth_l1_loss(
+            y_hats_cat[predicts_cat][:, j], ys_cat[:, 1:][predicts_cat][:, j]
+        ).item()
+
+    return output
 
 
 def do_stats(

@@ -430,7 +430,7 @@ class SequentialConversationModel(pl.LightningModule):
             features_pred = []
             combined_scores_cat = []
 
-            for decoder_idx, (attention, att_context, h, decoder,) in enumerate(
+            for decoder_idx, (attention, att_context, h, decoder) in enumerate(
                 zip(
                     self.attentions,
                     att_contexts,
@@ -519,3 +519,36 @@ class SequentialConversationModel(pl.LightningModule):
             their_scores_all,
             their_history_mask,
         )
+
+    def predict_step(self, batch, batch_idx):
+        (
+            features,
+            speakers,
+            embeddings,
+            embeddings_len,
+            predict,
+            conv_len,
+            batch_id,
+            y,
+            y_len,
+        ) = batch
+
+        batch_size = features.shape[0]
+        device = features.device
+
+        (
+            our_features_pred,
+            our_scores,
+            our_scores_mask,
+            their_scores,
+            their_scores_mask,
+        ) = self(
+            features,
+            speakers,
+            embeddings,
+            embeddings_len,
+            predict,
+            conv_len,
+        )
+
+        return {"y_hat": our_features_pred, "y": features, "predict": predict}
