@@ -157,23 +157,19 @@ def do_stats(
     ids = get_cv_ids(dataset_config)
     cv_ids = get_52_cv_ids(ids)
 
-    data = (
-        pd.DataFrame(
-            Parallel(n_jobs=n_jobs, backend="loky")(
-                delayed(_do_stats)(
-                    training_config,
-                    model_config,
-                    val_ids=ids[val_idx],
-                    features=dataset_config["features"],
-                    results_dir=results_dir,
-                    device=device,
-                    i=i,
-                    embeddings_dir=embeddings_dir,
-                    conversation_data_dir=conversation_data_dir,
-                )
-                for i, (_, val_idx) in enumerate(cv_ids)
+    pd.DataFrame(
+        Parallel(n_jobs=n_jobs, backend="loky")(
+            delayed(_do_stats)(
+                training_config,
+                model_config,
+                val_ids=ids[val_idx],
+                features=dataset_config["features"],
+                results_dir=results_dir,
+                device=device,
+                i=i,
+                embeddings_dir=embeddings_dir,
+                conversation_data_dir=conversation_data_dir,
             )
+            for i, (_, val_idx) in enumerate(cv_ids)
         )
-        .set_index("name")
-        .to_csv(f"{training_config['name']}.csv")
-    )
+    ).set_index("name").to_csv(f"{training_config['name']}.csv")

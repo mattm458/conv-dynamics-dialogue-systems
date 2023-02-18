@@ -3,19 +3,16 @@ import os
 from os import path
 
 import lightning.pytorch as pl
-import numpy as np
 import torch
-from joblib import Parallel, delayed
-from joblib.externals.loky.backend.context import get_context
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
-from sklearn.model_selection import KFold
 from torch.utils.data.dataloader import DataLoader
 
 from data.dataloader import collate_fn
 from data.dataset import ConversationDataset
 from model.config import get_model
 from util.cv import get_52_cv_ids, get_cv_ids
+from util.gpu_distributed_multiprocessing import run_distributed
 
 
 def _do_cross_validate_52(
@@ -112,7 +109,7 @@ def _do_cross_validate_52(
         pin_memory=True,
         drop_last=True,
         num_workers=4,
-        multiprocessing_context=get_context("loky"),
+        multiprocessing_context="fork",
     )
     val_dataset = ConversationDataset(
         val_ids,
@@ -128,7 +125,7 @@ def _do_cross_validate_52(
         pin_memory=True,
         drop_last=False,
         num_workers=4,
-        multiprocessing_context=get_context("loky"),
+        multiprocessing_context="fork",
     )
 
     # Create a new instance of the model based on the config
@@ -184,20 +181,39 @@ def cross_validate_52(
             )
 
     cv_ids = get_52_cv_ids(ids)
-
-    Parallel(n_jobs=n_jobs, backend="loky")(
-        delayed(_do_cross_validate_52)(
-            training_config=training_config,
-            model_config=model_config,
-            train_ids=ids[train_idx],
-            val_ids=ids[val_idx],
-            features=dataset_config["features"],
-            results_dir=results_dir,
-            device=device,
-            i=i,
-            embeddings_dir=embeddings_dir,
-            conversation_data_dir=conversation_data_dir,
-            enable_progress_bar=n_jobs == 1,
-        )
+    args = [
+        {
+            "training_config": training_config,
+            "model_config": model_config,
+            "train_ids": ids[train_idx],
+            "val_ids": ids[val_idx],
+            "features": dataset_config["features"],
+            "results_dir": results_dir,
+            "i": i,
+            "embeddings_dir": embeddings_dir,
+            "conversation_data_dir": conversation_data_dir,
+            "enable_progress_bar": False #n_jobs == 1,
+        }
         for i, (train_idx, val_idx) in enumerate(cv_ids)
+    ]
+
+    run_distributed(
+        _do_cross_validate_52, args=args, devices=[0, 1], processes_per_device=2
     )
+
+    # Parallel(n_jobs=n_jobs, backend="loky")(
+    #     delayed(_do_cross_validate_52)(
+    #         training_config=training_config,
+    #         model_config=model_config,
+    #         train_ids=ids[train_idx],
+    #         val_ids=ids[val_idx],
+    #         features=dataset_config["features"],
+    #         results_dir=results_dir,
+    #         device=device,
+    #         i=i,
+    #         embeddings_dir=embeddings_dir,
+    #         conversation_data_dir=conversation_data_dir,
+    #         enable_progress_bar=n_jobs == 1,
+    #     )
+    #     for i, (train_idx, val_idx) in enumerate(cv_ids)
+    # )
