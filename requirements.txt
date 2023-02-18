@@ -1,6 +1,7 @@
 click==8.1.3
 joblib==1.2.0
 lightning==1.9.2
+loky==3.3.0
 matplotlib==3.7.0
 numpy==1.24.2
 pandas==1.5.3
