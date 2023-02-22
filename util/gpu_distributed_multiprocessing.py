@@ -36,7 +36,7 @@ def run_distributed(fn, args, devices, processes_per_device):
 
         result = executor.submit(fn, **job_args)
         result.add_done_callback(
-            partial(_done_callback, device_id, args, executor, _results, fn)
+            partial(_done_callback, job_device_id, args, executor, _results, fn)
         )
         _results.append(result)
 
