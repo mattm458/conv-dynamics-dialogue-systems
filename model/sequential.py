@@ -176,15 +176,6 @@ class SequentialConversationModel(pl.LightningModule):
 
         return loss
 
-        # return {
-        #     "loss": loss,
-        #     #"our_attention_scores": our_scores,
-        #     #"our_attention_scores_mask": our_scores_mask,
-        #     #"their_attention_scores": their_scores,
-        #     #"their_attention_scores_mask": their_scores_mask,
-        #     #"predict": predict,
-        # }
-
     # def training_step_end(self, outputs):
     #     if self.global_step % 500 == 0:
     #         for name, parameter in self.named_parameters():
@@ -243,73 +234,6 @@ class SequentialConversationModel(pl.LightningModule):
 
     def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
         optimizer.zero_grad(set_to_none=True)
-
-    def validation_epoch_end(self, outputs):
-        return
-        if self.attention_style == "noop":
-            return
-
-        elif self.attention_style == "single":
-            our_scores = outputs[0]["our_attention_scores"][0].cpu()
-            our_scores_mask = outputs[0]["our_attention_scores_mask"][0].cpu()
-            their_scores_mask = outputs[0]["their_attention_scores_mask"][0].cpu()
-            predict = outputs[0]["predict"][0].cpu()
-
-            score_arr = [our_scores]
-            masks_arr = [our_scores_mask + their_scores_mask]
-            labels_arr = ["single"]
-
-        elif self.attention_style == "dual" or self.attention_style == "dual_combined":
-            our_scores = outputs[0]["our_attention_scores"][0].cpu()
-            our_scores_mask = outputs[0]["our_attention_scores_mask"][0].cpu()
-            their_scores = outputs[0]["their_attention_scores"][0].cpu()
-            their_scores_mask = outputs[0]["their_attention_scores_mask"][0].cpu()
-            predict = outputs[0]["predict"][0].cpu()
-
-            score_arr = [our_scores, their_scores]
-            masks_arr = [our_scores_mask, their_scores_mask]
-            labels_arr = ["our", "their"]
-
-        for scores, mask, label in zip(score_arr, masks_arr, labels_arr):
-            scores_show = scores[predict]
-            idxs_show = torch.arange(scores_show.shape[-1] - 1)[predict]
-            mask_show = mask
-
-            for feature_idx, feature in enumerate(self.feature_names):
-                fig, axs = plt.subplots(
-                    ncols=1, nrows=scores_show.shape[0], figsize=(10, 10)
-                )
-                for i, (s, idx) in enumerate(zip(scores_show, idxs_show)):
-                    ax = axs[i]
-                    ax.set_xticks([])
-                    ax.set_yticks([])
-                    row_data = (
-                        s[feature_idx, : idx + 1][mask_show[: idx + 1]]
-                        .unsqueeze(0)
-                        .numpy()
-                    )
-
-                    if row_data.shape[1] == 0:
-                        row_data = np.array([[0.0]])
-
-                    ax.imshow(
-                        row_data,
-                        interpolation="nearest",
-                        vmin=0 if row_data.shape[1] == 1 else None,
-                        vmax=1 if row_data.shape[1] == 1 else None,
-                        aspect="auto",
-                    )
-
-                fig.canvas.draw()
-                data = save_figure_to_numpy(fig)
-                plt.close(fig)
-
-                self.logger.experiment.add_image(
-                    f"val_alignment_{label}_{feature}",
-                    data,
-                    self.current_epoch,
-                    dataformats="HWC",
-                )
 
     def forward(
         self,
@@ -533,9 +457,6 @@ class SequentialConversationModel(pl.LightningModule):
             y_len,
         ) = batch
 
-        batch_size = features.shape[0]
-        device = features.device
-
         (
             our_features_pred,
             our_scores,
@@ -551,4 +472,13 @@ class SequentialConversationModel(pl.LightningModule):
             conv_len,
         )
 
-        return {"y_hat": our_features_pred, "y": features, "predict": predict}
+        return {
+            "y_hat": our_features_pred,
+            "y": features,
+            "predict": predict,
+            "our_attention_scores": our_scores,
+            "our_attention_scores_mask": our_scores_mask,
+            "their_attention_scores": their_scores,
+            "their_attention_scores_mask": their_scores_mask,
+            "predict": predict,
+        }
