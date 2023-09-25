@@ -154,7 +154,6 @@ class WindowedConversationModel(pl.LightningModule):
             embeddings_len,
             predict,
             conv_len,
-            batch_id,
             y,
             y_len,
         ) = batch
@@ -282,7 +281,6 @@ class WindowedConversationModel(pl.LightningModule):
             embeddings_len,
             predict,
             conv_len,
-            batch_id,
             y,
             y_len,
         ) = batch
@@ -390,7 +388,6 @@ class WindowedConversationModel(pl.LightningModule):
             embeddings_len,
             predict,
             conv_len,
-            batch_id,
             y,
             y_len,
         ) = batch

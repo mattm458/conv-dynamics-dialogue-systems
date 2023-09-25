@@ -10,14 +10,13 @@ def collate_fn(batch):
     embeddings_len_all = []
     predict_all = []
     conv_len_all = []
-    batch_id_all = []
     longest_embeddings = 0
     da_all = []
 
     y_all = []
     y_len_all = []
 
-    for batch_id, batch_i in enumerate(batch):
+    for batch_i in batch:
         if len(batch_i) == 9:
             (
                 features,
@@ -53,7 +52,6 @@ def collate_fn(batch):
             longest_embeddings = max_embeddings_len
 
         conv_len_all.append(conv_len)
-        batch_id_all.extend([batch_id] * conv_len)
         predict_all.append(predict)
 
         y_all.append(y)
@@ -80,7 +78,6 @@ def collate_fn(batch):
         embeddings_len_all,
         predict_all,
         conv_len_all,
-        batch_id_all,
         y_all,
         y_len_all,
     ]
