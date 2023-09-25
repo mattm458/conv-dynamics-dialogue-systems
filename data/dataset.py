@@ -67,18 +67,18 @@ class ConversationDataset(Dataset):
 
         conv_len = len(features)
 
-        output = [
-            features,
-            speakers,
-            embeddings,
-            embeddings_len,
-            torch.tensor(predict),
-            conv_len,
-            y,
-            torch.LongTensor([len(y)]),
-        ]
+        output = {
+            "features": features,
+            "speakers": speakers,
+            "embeddings": embeddings,
+            "predict": torch.tensor(predict),
+            "embeddings_len": embeddings_len,
+            "conv_len": conv_len,
+            "y": y,
+            "y_len": torch.LongTensor([len(y)]),
+        }
 
         if self.da:
-            output.append(conv_data["da"])
+            output["da"] = conv_data["da"]
 
-        return tuple(output)
+        return output

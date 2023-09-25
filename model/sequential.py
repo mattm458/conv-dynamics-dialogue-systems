@@ -126,27 +126,20 @@ class SequentialConversationModel(pl.LightningModule):
         return torch.optim.AdamW(self.parameters(), lr=self.lr)
 
     def validation_step(self, batch, batch_idx):
-        (
-            features,
-            speakers,
-            embeddings,
-            embeddings_len,
-            predict,
-            conv_len,
-            y,
-            y_len,
-        ) = batch
+        features = batch["features"]
+        speakers = batch["speakser"]
+        embeddings = batch["embeddings"]
+        embeddings_len = batch["embeddings_len"]
+        predict = batch["predict"]
+        conv_len = batch["conv_len"]
+
+        y = batch["y"]
+        y_len = batch["y_len"]
 
         batch_size = features.shape[0]
         device = features.device
 
-        (
-            our_features_pred,
-            our_scores,
-            our_scores_mask,
-            their_scores,
-            their_scores_mask,
-        ) = self(
+        our_features_pred, _, _, _, _ = self(
             features,
             speakers,
             embeddings,
@@ -183,27 +176,20 @@ class SequentialConversationModel(pl.LightningModule):
     #             self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
     def training_step(self, batch, batch_idx):
-        (
-            features,
-            speakers,
-            embeddings,
-            embeddings_len,
-            predict,
-            conv_len,
-            y,
-            y_len,
-        ) = batch
+        features = batch["features"]
+        speakers = batch["speakser"]
+        embeddings = batch["embeddings"]
+        embeddings_len = batch["embeddings_len"]
+        predict = batch["predict"]
+        conv_len = batch["conv_len"]
+
+        y = batch["y"]
+        y_len = batch["y_len"]
 
         batch_size = features.shape[0]
         device = features.device
 
-        (
-            our_features_pred,
-            our_scores,
-            our_scores_mask,
-            their_scores,
-            their_scores_mask,
-        ) = self(
+        our_features_pred, _, _, _, _ = self(
             features,
             speakers,
             embeddings,
@@ -445,30 +431,12 @@ class SequentialConversationModel(pl.LightningModule):
         )
 
     def predict_step(self, batch, batch_idx):
-        if self.da:
-            (
-                features,
-                speakers,
-                embeddings,
-                embeddings_len,
-                predict,
-                conv_len,
-                y,
-                y_len,
-                da,
-            ) = batch
-        else:
-            da = None
-            (
-                features,
-                speakers,
-                embeddings,
-                embeddings_len,
-                predict,
-                conv_len,
-                y,
-                y_len,
-            ) = batch
+        features = batch["features"]
+        speakers = batch["speakser"]
+        embeddings = batch["embeddings"]
+        embeddings_len = batch["embeddings_len"]
+        predict = batch["predict"]
+        conv_len = batch["conv_len"]
 
         (
             our_features_pred,
@@ -498,7 +466,7 @@ class SequentialConversationModel(pl.LightningModule):
             "conv_len": conv_len,
         }
 
-        if da is not None:
-            output["da"] = da
+        if "da" in batch:
+            output["da"] = batch["da"]
 
         return output

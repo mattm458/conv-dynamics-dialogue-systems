@@ -3,7 +3,7 @@ from torch import nn
 from torch.nn import functional as F
 
 
-def collate_fn(batch):
+def collate_fn(batches):
     features_all = []
     speakers_all = []
     embeddings_all = []
@@ -16,8 +16,10 @@ def collate_fn(batch):
     y_all = []
     y_len_all = []
 
-    for batch_i in batch:
-        if len(batch_i) == 9:
+    has_da = False
+
+    for batch in batches:
+        if len(batch) == 9:
             (
                 features,
                 speakers,
@@ -28,7 +30,7 @@ def collate_fn(batch):
                 y,
                 y_len,
                 da,
-            ) = batch_i
+            ) = batch
             da_all.append(da)
         else:
             (
@@ -40,22 +42,25 @@ def collate_fn(batch):
                 conv_len,
                 y,
                 y_len,
-            ) = batch_i
+            ) = batch
 
-        features_all.append(features)
-        speakers_all.append(speakers)
-        embeddings_all.append(embeddings)
-        embeddings_len_all.append(embeddings_len)
+        features_all.append(batch["features"])
+        speakers_all.append(batch["speakers"])
+        embeddings_all.append(batch["embeddings"])
+        embeddings_len_all.append(batch["embeddings_len"])
 
         max_embeddings_len = embeddings_len.max().item()
         if longest_embeddings < max_embeddings_len:
             longest_embeddings = max_embeddings_len
 
-        conv_len_all.append(conv_len)
-        predict_all.append(predict)
+        conv_len_all.append(batch["conv_len"])
+        predict_all.append(batch["predict"])
 
-        y_all.append(y)
-        y_len_all.append(y_len)
+        y_all.append(batch["y"])
+        y_len_all.append(batch["y_len"])
+
+        if "da" in batch:
+            da_all.append(batch["da"])
 
     features_all = nn.utils.rnn.pad_sequence(features_all, batch_first=True)
     speakers_all = nn.utils.rnn.pad_sequence(speakers_all, batch_first=True)
@@ -71,18 +76,23 @@ def collate_fn(batch):
     y_all = nn.utils.rnn.pad_sequence(y_all, batch_first=True)
     y_len_all = torch.LongTensor(y_len_all)
 
-    output = [
-        features_all,
-        speakers_all,
-        embeddings_all,
-        embeddings_len_all,
-        predict_all,
-        conv_len_all,
-        y_all,
-        y_len_all,
-    ]
+    output = {
+        "features": features_all,
+        "speakers": speakers_all,
+        "embeddings": embeddings_all,
+        "predict": predict_all,
+        "embeddings_len": embeddings_len_all,
+        "conv_len": conv_len_all,
+        "y": y_all,
+        "y_len": y_len_all,
+    }
+
+    if len(features_all) != len(da_all):
+        raise Exception(
+            f"There are fewer dialogue acts ({len(da_all)} than features ({len(features_all)})! There is probably something wrong with the Dataset."
+        )
 
     if len(da_all) > 0:
-        output.append(da_all)
+        output["da"] = da_all
 
-    return tuple(output)
+    return output
