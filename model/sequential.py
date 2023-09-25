@@ -133,7 +133,6 @@ class SequentialConversationModel(pl.LightningModule):
             embeddings_len,
             predict,
             conv_len,
-            batch_id,
             y,
             y_len,
         ) = batch
@@ -454,7 +453,6 @@ class SequentialConversationModel(pl.LightningModule):
                 embeddings_len,
                 predict,
                 conv_len,
-                batch_id,
                 y,
                 y_len,
                 da,
@@ -468,7 +466,6 @@ class SequentialConversationModel(pl.LightningModule):
                 embeddings_len,
                 predict,
                 conv_len,
-                batch_id,
                 y,
                 y_len,
             ) = batch
