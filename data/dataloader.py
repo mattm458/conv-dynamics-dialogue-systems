@@ -12,20 +12,37 @@ def collate_fn(batch):
     conv_len_all = []
     batch_id_all = []
     longest_embeddings = 0
+    da_all = []
 
     y_all = []
     y_len_all = []
 
-    for batch_id, (
-        features,
-        speakers,
-        embeddings,
-        embeddings_len,
-        predict,
-        conv_len,
-        y,
-        y_len,
-    ) in enumerate(batch):
+    for batch_id, batch_i in enumerate(batch):
+        if len(batch_i) == 9:
+            (
+                features,
+                speakers,
+                embeddings,
+                embeddings_len,
+                predict,
+                conv_len,
+                y,
+                y_len,
+                da,
+            ) = batch_i
+            da_all.append(da)
+        else:
+            (
+                features,
+                speakers,
+                embeddings,
+                embeddings_len,
+                predict,
+                conv_len,
+                y,
+                y_len,
+            ) = batch_i
+
         features_all.append(features)
         speakers_all.append(speakers)
         embeddings_all.append(embeddings)
@@ -56,7 +73,7 @@ def collate_fn(batch):
     y_all = nn.utils.rnn.pad_sequence(y_all, batch_first=True)
     y_len_all = torch.LongTensor(y_len_all)
 
-    return (
+    output = [
         features_all,
         speakers_all,
         embeddings_all,
@@ -66,4 +83,9 @@ def collate_fn(batch):
         batch_id_all,
         y_all,
         y_len_all,
-    )
+    ]
+
+    if len(da_all) > 0:
+        output.append(da_all)
+
+    return tuple(output)

@@ -44,11 +44,13 @@ class SequentialConversationModel(pl.LightningModule):
         num_decoders,
         attention_style,
         lr,
+        da=False,
     ):
         super().__init__()
 
         self.save_hyperparameters()
 
+        self.da = da
         self.US = None
         self.THEM = None
 
@@ -399,7 +401,7 @@ class SequentialConversationModel(pl.LightningModule):
             if len(our_scores_cat) > 0:
                 for our_scores in our_scores_cat:
                     our_scores_expanded = torch.zeros(
-                        (batch_size, num_timesteps), device=device
+                        (batch_size, num_timesteps - 1), device=device
                     )
                     our_scores_expanded[:, : our_scores.shape[1]] = our_scores.squeeze(
                         -1
@@ -412,7 +414,7 @@ class SequentialConversationModel(pl.LightningModule):
             if len(their_scores_cat) > 0:
                 for their_scores in their_scores_cat:
                     their_scores_expanded = torch.zeros(
-                        (batch_size, num_timesteps), device=device
+                        (batch_size, num_timesteps - 1), device=device
                     )
                     their_scores_expanded[
                         :, : their_scores.shape[1]
@@ -445,17 +447,32 @@ class SequentialConversationModel(pl.LightningModule):
         )
 
     def predict_step(self, batch, batch_idx):
-        (
-            features,
-            speakers,
-            embeddings,
-            embeddings_len,
-            predict,
-            conv_len,
-            batch_id,
-            y,
-            y_len,
-        ) = batch
+        if self.da:
+            (
+                features,
+                speakers,
+                embeddings,
+                embeddings_len,
+                predict,
+                conv_len,
+                batch_id,
+                y,
+                y_len,
+                da,
+            ) = batch
+        else:
+            da = None
+            (
+                features,
+                speakers,
+                embeddings,
+                embeddings_len,
+                predict,
+                conv_len,
+                batch_id,
+                y,
+                y_len,
+            ) = batch
 
         (
             our_features_pred,
@@ -472,7 +489,7 @@ class SequentialConversationModel(pl.LightningModule):
             conv_len,
         )
 
-        return {
+        output = {
             "y_hat": our_features_pred,
             "y": features,
             "predict": predict,
@@ -481,4 +498,11 @@ class SequentialConversationModel(pl.LightningModule):
             "their_attention_scores": their_scores,
             "their_attention_scores_mask": their_scores_mask,
             "predict": predict,
+            "speakers": speakers,
+            "conv_len": conv_len,
         }
+
+        if da is not None:
+            output["da"] = da
+
+        return output

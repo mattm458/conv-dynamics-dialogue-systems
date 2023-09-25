@@ -23,12 +23,15 @@ class ConversationDataset(Dataset):
         embeddings_dir,
         conversation_data_dir="fisher-ipu-data",
         features=FEATURES,
+        da=False,
     ):
         super().__init__()
         self.conversation_ids = conversation_ids
         self.embeddings_dir = embeddings_dir
         self.conversation_data_dir = conversation_data_dir
         self.features = features
+
+        self.da = da
 
     def __len__(self):
         return len(self.conversation_ids)
@@ -64,7 +67,7 @@ class ConversationDataset(Dataset):
 
         conv_len = len(features)
 
-        return (
+        output = [
             features,
             speakers,
             embeddings,
@@ -73,4 +76,9 @@ class ConversationDataset(Dataset):
             conv_len,
             y,
             torch.LongTensor([len(y)]),
-        )
+        ]
+
+        if self.da:
+            output.append(conv_data["da"])
+
+        return tuple(output)

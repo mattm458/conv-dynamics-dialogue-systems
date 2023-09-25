@@ -181,6 +181,7 @@ def cross_validate_52(
             )
 
     cv_ids = get_52_cv_ids(ids)
+
     args = [
         {
             "training_config": training_config,
@@ -192,7 +193,7 @@ def cross_validate_52(
             "i": i,
             "embeddings_dir": embeddings_dir,
             "conversation_data_dir": conversation_data_dir,
-            "enable_progress_bar": False #n_jobs == 1,
+            "enable_progress_bar": False,  # n_jobs == 1,
         }
         for i, (train_idx, val_idx) in enumerate(cv_ids)
     ]

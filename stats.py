@@ -141,6 +141,28 @@ def _do_stats(
             y_hats_cat[predicts_cat][:, j], ys_cat[:, 1:][predicts_cat][:, j]
         ).item()
 
+    if "y_hat_tf" in results[0]:
+        y_hats_tf = [x["y_hat_tf"] for x in results]
+        longest_y_hat_tf = max([x.shape[1] for x in y_hats_tf])
+        y_hats_pad_tf = [
+            F.pad(x, (0, 0, 0, longest_y_hat_tf - x.shape[1])) for x in y_hats_tf
+        ]
+        y_hats_cat_tf = torch.cat(y_hats_pad_tf, dim=0)
+
+        output = output | {
+            "l1_smooth_loss": F.smooth_l1_loss(
+                y_hats_cat_tf[predicts_cat], ys_cat[:, 1:][predicts_cat]
+            ).item(),
+            "mse_loss": F.mse_loss(
+                y_hats_cat_tf[predicts_cat], ys_cat[:, 1:][predicts_cat]
+            ).item(),
+        }
+
+        for j, feature in enumerate(features):
+            output[f"{feature}_l1_smooth_loss"] = F.smooth_l1_loss(
+                y_hats_cat_tf[predicts_cat][:, j], ys_cat[:, 1:][predicts_cat][:, j]
+            ).item()
+
     return output
 
 
@@ -158,14 +180,14 @@ def do_stats(
     cv_ids = get_52_cv_ids(ids)
 
     pd.DataFrame(
-        Parallel(n_jobs=n_jobs, backend="loky")(
+        Parallel(n_jobs=1, backend="loky")(
             delayed(_do_stats)(
                 training_config,
                 model_config,
                 val_ids=ids[val_idx],
                 features=dataset_config["features"],
                 results_dir=results_dir,
-                device=device,
+                device=0,
                 i=i,
                 embeddings_dir=embeddings_dir,
                 conversation_data_dir=conversation_data_dir,

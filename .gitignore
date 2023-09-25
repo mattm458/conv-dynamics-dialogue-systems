@@ -4,6 +4,8 @@ fisher-ipu-data
 
 results*
 
+_ANALYSIS
+
 # Custom ML project exclusions
 lightning_logs/
 *.ipynb
