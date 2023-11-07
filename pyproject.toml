@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cdmodel"
+version = "0.0.1"
+authors = [
+  { name="Matthew McNeill", email="mmcneill@gradcenter.cuny.edu" },
+]
+description = "An autoregressive conversational dynamics model for dialogue systems"
+readme = "README.md"
+requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/mattm458/conv-dynamics-dialogue-systems"
+"Bug Tracker" = "https://github.com/mattm458/conv-dynamics-dialogue-systems/issues"
+
+[project.scripts]
+cdmodel = "cdmodel.cdmodel:start"
+
+[tool.pytest.ini_options]
+addopts = [
+    "--import-mode=importlib",
+]
+pythonpath = "src"
+testpaths = "tests"

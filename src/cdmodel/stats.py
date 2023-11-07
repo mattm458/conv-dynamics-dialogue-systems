@@ -10,11 +10,11 @@ from lightning import pytorch as pl
 from torch.nn import functional as F
 from torch.utils.data.dataloader import DataLoader
 
-from data.dataloader import collate_fn
-from data.dataset import ConversationDataset
-from model.config import get_model
-from util.cv import get_52_cv_ids, get_cv_ids
-from util.lightning_logs import get_best_checkpoint, get_highest_version
+from cdmodel.data.dataloader import collate_fn
+from cdmodel.data.dataset import ConversationDataset
+from cdmodel.model.config import get_model
+from cdmodel.util.cv import get_52_cv_ids, get_cv_ids
+from cdmodel.util.lightning_logs import get_best_checkpoint, get_highest_version
 
 
 def _do_stats(

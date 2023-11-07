@@ -1,5 +1,5 @@
-from model.sequential import SequentialConversationModel
-from model.windowed import WindowedConversationModel
+from cdmodel.model.sequential import SequentialConversationModel
+from cdmodel.model.windowed import WindowedConversationModel
 
 
 def get_model(

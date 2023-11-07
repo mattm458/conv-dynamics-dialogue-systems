@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 from torch import nn
 from torch.nn import functional as F
 
-from model.components import (
+from cdmodel.model.components import (
     Decoder,
     DualAttention,
     DualCombinedAttention,

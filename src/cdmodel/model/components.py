@@ -3,7 +3,7 @@ from typing import List, Optional, Tuple
 import torch
 from torch import Tensor, nn
 
-from model.util import lengths_to_mask
+from cdmodel.model.util import lengths_to_mask
 
 
 class Encoder(torch.jit.ScriptModule):
@@ -168,7 +168,7 @@ class DualCombinedAttention(torch.jit.ScriptModule):
             ),
         )
 
-        return combined_att, (our_scores, their_scores, combined_att_scores[:,0])
+        return combined_att, (our_scores, their_scores, combined_att_scores[:, 0])
 
 
 class SingleAttention(torch.jit.ScriptModule):

@@ -1,11 +1,6 @@
-#! python
-
 import json
 
 import click
-
-from stats import do_stats
-from train import cross_validate_52, standard_train
 
 
 @click.group()
@@ -35,6 +30,8 @@ def main(ctx, config, device):
 @click.option("--conversation-data-dir", required=True, type=str)
 def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
     if method == "cv":
+        from cdmodel.train import cross_validate_52
+
         cross_validate_52(
             dataset_config=ctx.obj["config"]["dataset"],
             training_config=ctx.obj["config"]["training"],
@@ -46,6 +43,8 @@ def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
             conversation_data_dir=conversation_data_dir,
         )
     elif method == "standard":
+        from cdmodel.train import standard_train
+
         standard_train(
             dataset_config=ctx.obj["config"]["dataset"],
             training_config=ctx.obj["config"]["training"],
@@ -66,6 +65,8 @@ def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
 @click.option("--embeddings-dir", required=True, type=str)
 @click.option("--conversation-data-dir", required=True, type=str)
 def stats(ctx, results_dir, n_jobs, embeddings_dir, conversation_data_dir):
+    from cdmodel.stats import do_stats
+
     do_stats(
         dataset_config=ctx.obj["config"]["dataset"],
         training_config=ctx.obj["config"]["training"],
@@ -97,5 +98,9 @@ def torchscript(ctx):
     pass
 
 
-if __name__ == "__main__":
+def start():
     main(obj={})
+
+
+if __name__ == "__main__":
+    start()

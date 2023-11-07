@@ -9,11 +9,11 @@ from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 from torch.utils.data.dataloader import DataLoader
 
-from data.dataloader import get_collate_fn, collate_fn
-from data.dataset import ConversationDataset
-from model.config import get_model
-from util.cv import get_52_cv_ids, get_cv_ids
-from util.gpu_distributed_multiprocessing import run_distributed
+from cdmodel.data.dataloader import get_collate_fn, collate_fn
+from cdmodel.data.dataset import ConversationDataset
+from cdmodel.model.config import get_model
+from cdmodel.util.cv import get_52_cv_ids, get_cv_ids
+from cdmodel.util.gpu_distributed_multiprocessing import run_distributed
 
 
 def _do_cross_validate_52(

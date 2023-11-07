@@ -8,9 +8,9 @@ from lightning import pytorch as pl
 from torch import nn
 from torch.nn import functional as F
 
-from model.components import EmbeddingEncoder, NoopAttention
-from model.window_iterator.random import RandomWindowIterator
-from model.window_iterator.sequential import SequentialWindowIterator
+from cdmodel.model.components import EmbeddingEncoder, NoopAttention
+from cdmodel.model.window_iterator.random import RandomWindowIterator
+from cdmodel.model.window_iterator.sequential import SequentialWindowIterator
 
 
 class WindowedConversationModel(pl.LightningModule):
