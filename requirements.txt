@@ -1,10 +1,10 @@
-click==8.1.3
-joblib==1.2.0
-lightning==1.9.2
-loky==3.3.0
-matplotlib==3.7.0
-numpy==1.24.2
-pandas==1.5.3
-scikit-learn==1.2.1
-tensorboard==2.12.0
-torch==1.13.1
+--find-links https://download.pytorch.org/whl/cu118/torch_stable.html
+
+lightning==2.0.2
+matplotlib==3.7.1
+numpy==1.24.3
+pandas==2.0.2
+pqdm==0.2.0
+statsmodels==0.14.0
+torch==2.0.1
+tqdm==4.65.0

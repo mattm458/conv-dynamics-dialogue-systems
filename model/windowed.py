@@ -147,16 +147,12 @@ class WindowedConversationModel(pl.LightningModule):
         return output
 
     def validation_step(self, batch, batch_idx):
-        (
-            features,
-            speakers,
-            embeddings,
-            embeddings_len,
-            predict,
-            conv_len,
-            y,
-            y_len,
-        ) = batch
+        features = batch["features"]
+        speakers = batch["speakser"]
+        embeddings = batch["embeddings"]
+        embeddings_len = batch["embeddings_len"]
+        predict = batch["predict"]
+        conv_len = batch["conv_len"]
 
         batch_size = features.shape[0]
 
@@ -274,16 +270,13 @@ class WindowedConversationModel(pl.LightningModule):
             seq.update(autoregress_input=features_pred.detach().clone())
 
     def training_step(self, batch, batch_idx):
-        (
-            features,
-            speakers,
-            embeddings,
-            embeddings_len,
-            predict,
-            conv_len,
-            y,
-            y_len,
-        ) = batch
+        features = batch["features"]
+        speakers = batch["speakser"]
+        embeddings = batch["embeddings"]
+        embeddings_len = batch["embeddings_len"]
+        predict = batch["predict"]
+        conv_len = batch["conv_len"]
+
         try:
             opt = self.optimizers()
         except:
@@ -381,16 +374,12 @@ class WindowedConversationModel(pl.LightningModule):
             seq.update(autoregress_input=features_pred.detach().clone())
 
     def predict_step(self, batch, batch_idx):
-        (
-            features,
-            speakers,
-            embeddings,
-            embeddings_len,
-            predict,
-            conv_len,
-            y,
-            y_len,
-        ) = batch
+        features = batch["features"]
+        speakers = batch["speakser"]
+        embeddings = batch["embeddings"]
+        embeddings_len = batch["embeddings_len"]
+        predict = batch["predict"]
+        conv_len = batch["conv_len"]
 
         output = {"y": features, "predict": predict}
 

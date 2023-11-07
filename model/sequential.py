@@ -44,12 +44,19 @@ class SequentialConversationModel(pl.LightningModule):
         num_decoders,
         attention_style,
         lr,
+        gender=False,
         da=False,
+        speaker_identity=False,
+        speaker_identity_count=None,  # 520,
+        speaker_identity_dim=None,  # 32,
+        speaker_identity_partner=False,
+        speaker_identity_encoder=True,
     ):
         super().__init__()
 
         self.save_hyperparameters()
 
+        self.gender = gender
         self.da = da
         self.US = None
         self.THEM = None
@@ -58,6 +65,17 @@ class SequentialConversationModel(pl.LightningModule):
         self.feature_names = feature_names
         self.lr = lr
         self.attention_style = attention_style
+
+        self.speaker_identity = speaker_identity
+        self.speaker_identity_partner = speaker_identity_partner
+        self.speaker_identity_encoder = speaker_identity_encoder
+
+        if speaker_identity:
+            self.speaker_identity_embedding = nn.Embedding(
+                num_embeddings=speaker_identity_count + 1,
+                padding_idx=0,
+                embedding_dim=speaker_identity_dim,
+            )
 
         self.embedding_encoder = EmbeddingEncoder(
             embedding_dim=embedding_dim,
@@ -69,6 +87,12 @@ class SequentialConversationModel(pl.LightningModule):
 
         encoder_in_dim = len(feature_names) + embedding_encoder_out_dim + 2
 
+        if self.gender:
+            encoder_in_dim += 2
+
+        if self.speaker_identity and self.speaker_identity_encoder:
+            encoder_in_dim += speaker_identity_dim
+
         self.encoder = Encoder(
             in_dim=encoder_in_dim,
             hidden_dim=encoder_hidden_dim,
@@ -79,26 +103,44 @@ class SequentialConversationModel(pl.LightningModule):
         self.attentions = nn.ModuleList()
         self.decoders = nn.ModuleList()
 
+        decoder_attention_context_dim = embedding_encoder_att_dim + (
+            encoder_hidden_dim * encoder_num_layers
+        )
+
+        attention_multiplier = 2 if attention_style == "dual" else 1
+        decoder_in_dim = (
+            embedding_encoder_att_dim + (encoder_hidden_dim * attention_multiplier) + 2
+        )
+
+        if self.gender:
+            decoder_attention_context_dim += 2
+            decoder_in_dim += 2
+
+        if self.speaker_identity:
+            decoder_attention_context_dim += speaker_identity_dim
+            decoder_in_dim += speaker_identity_dim
+
+            if self.speaker_identity_partner:
+                decoder_attention_context_dim += speaker_identity_dim
+                decoder_in_dim += speaker_identity_dim
+
         for i in range(num_decoders):
             if attention_style == "dual_combined":
                 attention = DualCombinedAttention(
                     history_in_dim=encoder_hidden_dim,
-                    context_dim=embedding_encoder_att_dim
-                    + (encoder_hidden_dim * encoder_num_layers),
+                    context_dim=decoder_attention_context_dim,
                     att_dim=decoder_att_dim,
                 )
             elif attention_style == "dual":
                 attention = DualAttention(
                     history_in_dim=encoder_hidden_dim,
-                    context_dim=embedding_encoder_att_dim
-                    + (encoder_hidden_dim * encoder_num_layers),
+                    context_dim=decoder_attention_context_dim,
                     att_dim=decoder_att_dim,
                 )
             elif attention_style == "single":
                 attention = SingleAttention(
                     history_in_dim=encoder_hidden_dim,
-                    context_dim=embedding_encoder_att_dim
-                    + (encoder_hidden_dim * encoder_num_layers),
+                    context_dim=decoder_attention_context_dim,
                     att_dim=decoder_att_dim,
                 )
             elif attention_style == "noop":
@@ -108,12 +150,9 @@ class SequentialConversationModel(pl.LightningModule):
 
             self.attentions.append(attention)
 
-            attention_multiplier = 2 if attention_style == "dual" else 1
             self.decoders.append(
                 Decoder(
-                    decoder_in_dim=embedding_encoder_att_dim
-                    + (encoder_hidden_dim * attention_multiplier)
-                    + 2,
+                    decoder_in_dim=decoder_in_dim,
                     hidden_dim=decoder_hidden_dim,
                     num_layers=decoder_num_layers,
                     decoder_dropout=decoder_dropout,
@@ -127,7 +166,7 @@ class SequentialConversationModel(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         features = batch["features"]
-        speakers = batch["speakser"]
+        speakers = batch["speakers"]
         embeddings = batch["embeddings"]
         embeddings_len = batch["embeddings_len"]
         predict = batch["predict"]
@@ -135,6 +174,18 @@ class SequentialConversationModel(pl.LightningModule):
 
         y = batch["y"]
         y_len = batch["y_len"]
+
+        genders = None
+        if self.gender:
+            genders = batch["gender"]
+
+        speaker_identities = None
+        if self.speaker_identity:
+            speaker_identities = batch["speaker_identity"]
+
+        partner_identities = None
+        if self.speaker_identity_partner:
+            partner_identities = batch["partner_identity"]
 
         batch_size = features.shape[0]
         device = features.device
@@ -146,6 +197,9 @@ class SequentialConversationModel(pl.LightningModule):
             embeddings_len,
             predict,
             conv_len,
+            genders=genders,
+            speaker_identities=speaker_identities,
+            partner_identities=partner_identities,
         )
         y_mask = torch.arange(y.shape[1], device=device).unsqueeze(0)
         y_mask = y_mask.repeat(batch_size, 1)
@@ -177,7 +231,7 @@ class SequentialConversationModel(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         features = batch["features"]
-        speakers = batch["speakser"]
+        speakers = batch["speakers"]
         embeddings = batch["embeddings"]
         embeddings_len = batch["embeddings_len"]
         predict = batch["predict"]
@@ -185,6 +239,18 @@ class SequentialConversationModel(pl.LightningModule):
 
         y = batch["y"]
         y_len = batch["y_len"]
+
+        genders = None
+        if self.gender:
+            genders = batch["gender"]
+
+        speaker_identities = None
+        if self.speaker_identity:
+            speaker_identities = batch["speaker_identity"]
+
+        partner_identities = None
+        if self.speaker_identity_partner:
+            partner_identities = batch["partner_identity"]
 
         batch_size = features.shape[0]
         device = features.device
@@ -196,6 +262,9 @@ class SequentialConversationModel(pl.LightningModule):
             embeddings_len,
             predict,
             conv_len,
+            genders=genders,
+            speaker_identities=speaker_identities,
+            partner_identities=partner_identities,
         )
 
         y_mask = torch.arange(y.shape[1], device=device).unsqueeze(0)
@@ -218,7 +287,7 @@ class SequentialConversationModel(pl.LightningModule):
 
         return loss
 
-    def optimizer_zero_grad(self, epoch, batch_idx, optimizer, optimizer_idx):
+    def optimizer_zero_grad(self, epoch, batch_idx, optimizer):
         optimizer.zero_grad(set_to_none=True)
 
     def forward(
@@ -230,6 +299,9 @@ class SequentialConversationModel(pl.LightningModule):
         predict,
         conv_len,
         autoregress_prob=1.0,
+        genders=None,
+        speaker_identities=None,
+        partner_identities=None,
     ):
         # Get some basic information from the input tensors
         batch_size = features.shape[0]
@@ -241,6 +313,12 @@ class SequentialConversationModel(pl.LightningModule):
         embeddings_encoded = nn.utils.rnn.pad_sequence(
             torch.split(embeddings_encoded, conv_len.tolist()), batch_first=True
         )
+
+        if self.speaker_identity:
+            speaker_identities = self.speaker_identity_embedding(speaker_identities)
+
+            if self.speaker_identity_partner:
+                partner_identities = self.speaker_identity_embedding(partner_identities)
 
         # Create masks that represent our and their timesteps in the history
         if self.US is None:
@@ -258,6 +336,19 @@ class SequentialConversationModel(pl.LightningModule):
         embeddings_encoded = [
             x.squeeze(1) for x in torch.split(embeddings_encoded, 1, dim=1)
         ]
+
+        if self.gender:
+            genders = [x.squeeze(1) for x in torch.split(genders, 1, dim=1)]
+
+        if self.speaker_identity:
+            speaker_identities = [
+                x.squeeze(1) for x in torch.split(speaker_identities, 1, dim=1)
+            ]
+
+            if self.speaker_identity_partner:
+                partner_identities = [
+                    x.squeeze(1) for x in torch.split(partner_identities, 1, dim=1)
+                ]
 
         # Create initial zero hidden states for the encoder and decoder(s)
         encoder_hidden = self.encoder.get_hidden(batch_size=batch_size, device=device)
@@ -294,6 +385,18 @@ class SequentialConversationModel(pl.LightningModule):
 
             speaker_timestep = speakers[i]
 
+            if self.gender:
+                gender_timestep = genders[i]
+                gender_next = genders[i + 1]
+
+            if self.speaker_identity:
+                speaker_identity_timestep = speaker_identities[i]
+                speaker_identity_next = speaker_identities[i + 1]
+
+                if self.speaker_identity_partner:
+                    partner_identity_timestep = partner_identities[i]
+                    partner_identity_next = partner_identities[i + 1]
+
             # Get some timestep-specific data from the input
             embeddings_encoded_timestep = embeddings_encoded[i]
             embeddings_encoded_timestep_next = embeddings_encoded[i + 1]
@@ -306,6 +409,12 @@ class SequentialConversationModel(pl.LightningModule):
                 embeddings_encoded_timestep,
                 speaker_timestep,
             ]
+
+            if self.gender:
+                encoder_in.append(gender_timestep)
+
+            if self.speaker_identity and self.speaker_identity_encoder:
+                encoder_in.append(speaker_identity_timestep)
 
             encoder_in = torch.cat(encoder_in, dim=-1)
 
@@ -323,13 +432,18 @@ class SequentialConversationModel(pl.LightningModule):
             speaker_next = speakers[i + 1]
 
             # Assemble the attention context vector for each of the decoder attention layer(s)
-            att_contexts = [
-                torch.cat(
-                    h + [embeddings_encoded_timestep_next_pred],
-                    dim=-1,
-                )
-                for h in decoder_hidden
-            ]
+            att_contexts = []
+            for h in decoder_hidden:
+                att_contexts_arr = h + [embeddings_encoded_timestep_next_pred]
+                if self.gender:
+                    att_contexts_arr.append(gender_next)
+                if self.speaker_identity:
+                    att_contexts_arr.append(speaker_identity_next)
+
+                    if self.speaker_identity_partner:
+                        att_contexts_arr.append(partner_identity_next)
+
+                att_contexts.append(torch.cat(att_contexts_arr, dim=-1))
 
             # Get our/their history masks for the timesteps we're about to predict
             our_history_mask_timestep = our_history_mask[:, : i + 1]
@@ -363,10 +477,21 @@ class SequentialConversationModel(pl.LightningModule):
                 if combined_scores is not None:
                     combined_scores_cat.append(combined_scores)
 
-                decoder_in = torch.cat(
-                    [history_att, embeddings_encoded_timestep_next_pred, speaker_next],
-                    dim=-1,
-                )
+                decoder_in_arr = [
+                    history_att,
+                    embeddings_encoded_timestep_next_pred,
+                    speaker_next,
+                ]
+
+                if self.gender:
+                    decoder_in_arr.append(gender_next)
+
+                if self.speaker_identity:
+                    decoder_in_arr.append(speaker_identity_next)
+                    if self.speaker_identity_partner:
+                        decoder_in_arr.append(partner_identity_next)
+
+                decoder_in = torch.cat(decoder_in_arr, dim=-1)
 
                 decoder_out, h_out = decoder(decoder_in, h)
                 decoder_hidden[decoder_idx] = h_out

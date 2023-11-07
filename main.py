@@ -5,7 +5,7 @@ import json
 import click
 
 from stats import do_stats
-from train import cross_validate_52
+from train import cross_validate_52, standard_train
 
 
 @click.group()
@@ -46,7 +46,16 @@ def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
             conversation_data_dir=conversation_data_dir,
         )
     elif method == "standard":
-        raise Exception("Standard training method not implemented!")
+        standard_train(
+            dataset_config=ctx.obj["config"]["dataset"],
+            training_config=ctx.obj["config"]["training"],
+            model_config=ctx.obj["config"]["model"],
+            device=ctx.obj["device"],
+            n_jobs=n_jobs,
+            resume=resume,
+            embeddings_dir=embeddings_dir,
+            conversation_data_dir=conversation_data_dir,
+        )
     pass
 
 
