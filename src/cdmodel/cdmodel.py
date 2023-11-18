@@ -1,19 +1,21 @@
 import json
+from os import path
+from typing import Optional
 
 import click
+from click import Context
 
 
 @click.group()
 @click.pass_context
-@click.option("--config", type=str, required=True)
+@click.option("--config", type=str, required=False)
 @click.option("--device", type=int, required=False, default=0)
-def main(ctx, config, device):
-    with open(config) as infile:
-        config = json.load(infile)
+def main(ctx: Context, config: Optional[str], device: int):
+    if config is not None:
+        with open(config) as infile:
+            ctx.obj["config"] = json.load(infile)
 
-    ctx.obj["config"] = config
     ctx.obj["device"] = device
-    pass
 
 
 @main.command()
@@ -28,7 +30,19 @@ def main(ctx, config, device):
 @click.option("--resume", required=False, type=str)
 @click.option("--embeddings-dir", required=True, type=str)
 @click.option("--conversation-data-dir", required=True, type=str)
-def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
+def train(
+    ctx: Context,
+    method: str,
+    n_jobs: int,
+    resume: str,
+    embeddings_dir: str,
+    conversation_data_dir: str,
+):
+    if ctx.obj["config"] is None:
+        raise Exception(
+            "Training requires a configuration to be specified with --config"
+        )
+
     if method == "cv":
         from cdmodel.train import cross_validate_52
 
@@ -50,7 +64,6 @@ def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
             training_config=ctx.obj["config"]["training"],
             model_config=ctx.obj["config"]["model"],
             device=ctx.obj["device"],
-            n_jobs=n_jobs,
             resume=resume,
             embeddings_dir=embeddings_dir,
             conversation_data_dir=conversation_data_dir,
@@ -64,7 +77,13 @@ def train(ctx, method, n_jobs, resume, embeddings_dir, conversation_data_dir):
 @click.option("--n-jobs", required=False, default=2, type=int)
 @click.option("--embeddings-dir", required=True, type=str)
 @click.option("--conversation-data-dir", required=True, type=str)
-def stats(ctx, results_dir, n_jobs, embeddings_dir, conversation_data_dir):
+def stats(
+    ctx: Context,
+    results_dir: str,
+    n_jobs: int,
+    embeddings_dir: str,
+    conversation_data_dir: str,
+):
     from cdmodel.stats import do_stats
 
     do_stats(
@@ -81,14 +100,26 @@ def stats(ctx, results_dir, n_jobs, embeddings_dir, conversation_data_dir):
 
 
 @main.command()
+@click.option("--dataset", required=True, type=str)
+@click.option("--dataset-dir", required=True, type=str)
+@click.option("--resume-from-dir", required=False, type=str)
 @click.pass_context
-def test(ctx):
+def preprocess(ctx:Context, dataset: str, dataset_dir: str, resume_from_dir: Optional[str]):
+    from cdmodel.preprocessing import preprocess
+
+    preprocess(
+        dataset=dataset,
+        dataset_dir=path.normpath(dataset_dir),
+        dirname=None,
+        n_jobs=8,
+        resume_from_dir=resume_from_dir,
+    )
     pass
 
 
 @main.command()
 @click.pass_context
-def preprocess(ctx):
+def test(ctx):
     pass
 
 
