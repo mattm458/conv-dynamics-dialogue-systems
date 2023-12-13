@@ -15,9 +15,24 @@ from cdmodel.preprocessing.datasets import Dataset
 from cdmodel.preprocessing.normalize import norm_by_conv_speaker
 
 
+def _segment_export(data: DataFrame, out_dir: str) -> None:
+    segment_path: Final[str] = path.join(out_dir, "segments")
+
+    # Have we processed segment data already?
+    if path.exists(segment_path):
+        print("segments directory exists, skipping...")
+        return
+    else:
+        os.mkdir(segment_path)
+
+    for id, group in tqdm(data.groupby("id"), desc="Exporting segments"):
+        torch.save(group.to_dict(orient="list"), path.join(segment_path, f"{id}.pt"))
+
+
 def _embeddings(data: DataFrame, out_dir: str) -> None:
-    # Have we processed embeddings already?
     embeddings_path: Final[str] = path.join(out_dir, "embeddings")
+
+    # Have we processed embeddings already?
     if path.exists(embeddings_path):
         print("embeddings directory exists, skipping...")
         return
@@ -29,7 +44,7 @@ def _embeddings(data: DataFrame, out_dir: str) -> None:
     tokenizer = get_tokenizer("basic_english")
 
     # Look up and save embeddings for each conversation
-    for id, text in tqdm(data.groupby("id")["transcript"], desc="Saving embeddings"):
+    for id, text in tqdm(data.groupby("id")["transcript"], desc="Exporting embeddings"):
         tokenized = [tokenizer(x) for x in text]
         vectorized = [vec.get_vecs_by_tokens(x) for x in tokenized]
         lengths = torch.LongTensor([len(x) for x in vectorized])
@@ -104,3 +119,12 @@ def preprocess(
 
     # Step 2: Embeddings
     _embeddings(data=data_norm, out_dir=out_dir)
+
+    # Step 3: Segment export
+    _segment_export(data=data_norm, out_dir=out_dir)
+
+    # ID assignment: All speakers
+    torch.save(
+        dict((k, i + 1) for (i, k) in enumerate(data.speaker_id.unique())),
+        path.join(out_dir, "speaker-ids-all.pt"),
+    )

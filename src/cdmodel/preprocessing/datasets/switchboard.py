@@ -235,10 +235,10 @@ class SwitchboardDataset(Dataset):
         self, conversations: dict[int, list[ConversationFile]]
     ) -> dict[int, list[ConversationFile]]:
         # # DEBUG - REMOVE
-        out = {}
-        out[4345] = conversations[4345]
-        out[3029] = conversations[4785]
-        return out
+        # out = {}
+        # out[4345] = conversations[4345]
+        # out[3029] = conversations[4785]
+        # return out
         return conversations
 
     def get_segmented_transcripts(
