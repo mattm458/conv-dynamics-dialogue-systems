@@ -4,6 +4,7 @@ from os import path
 from typing import Optional
 
 import pandas as pd
+from pandas import DataFrame
 from tqdm import tqdm
 
 from cdmodel.preprocessing.datasets.dataset import (
@@ -115,9 +116,7 @@ def process_word(word):
     return word
 
 
-def _get_conversation_speaker_ids(dataset_dir: str) -> dict[tuple[int, str], int]:
-    speaker_ids: dict[tuple[int, str], int] = {}
-
+def _get_call_con(dataset_dir: str) -> DataFrame:
     df_calls = pd.read_csv(
         path.join(dataset_dir, "tables", "call_con_tab.csv"), header=None
     )
@@ -134,6 +133,14 @@ def _get_conversation_speaker_ids(dataset_dir: str) -> dict[tuple[int, str], int
         ]
     )
 
+    return df_calls
+
+
+def _get_conversation_speaker_ids(dataset_dir: str) -> dict[tuple[int, str], int]:
+    speaker_ids: dict[tuple[int, str], int] = {}
+
+    df_calls = _get_call_con(dataset_dir=dataset_dir)
+
     for _, row in df_calls.iterrows():
         speaker_ids[(row.conversation_no, row.conversation_side)] = row.caller_no
 
@@ -148,6 +155,49 @@ class SwitchboardDataset(Dataset):
             # f_max=None,
             segmentation=segmentation,
             n_jobs=n_jobs,
+        )
+
+    def get_conversations_with_min_speaker_repeat(self, min_repeat: int) -> list[int]:
+        conversation_ids: list[int] = []
+
+        df_calls = _get_call_con(self.dataset_dir)
+        call_counts = df_calls.caller_no.value_counts()
+        eligible_callers = set(call_counts.index)
+
+        prev_eligible_caller_size = len(eligible_callers)
+
+        # Here, we iteratively reconstruct df_call_pairs by removing callers with fewer than 3 examples.
+        # We have to do this iteratively because an almost-rare caller (with only 3 instances) might converse
+        # with a rare caller (2 or fewer instances) and is removed, bringing their total count down to just 2.
+        # This iteration solves that problem and results in a dataset where we're guaranteed
+        # there are at least 3 instances of each caller.
+        while True:
+            df_calls_a = df_calls[
+                (df_calls.conversation_side == "A")
+                & (df_calls.caller_no.isin(eligible_callers))
+            ].set_index("conversation_no")
+            df_calls_b = df_calls[
+                (df_calls.conversation_side == "B")
+                & (df_calls.caller_no.isin(eligible_callers))
+            ].set_index("conversation_no")
+
+            df_call_pairs = df_calls_a.join(
+                df_calls_b, lsuffix="_a", rsuffix="_b", how="inner"
+            )
+
+            call_counts = pd.concat(
+                [df_call_pairs.caller_no_a, df_call_pairs.caller_no_b]
+            ).value_counts()
+            call_counts = call_counts[call_counts >= 3]
+            eligible_callers = set(call_counts.index)
+
+            if len(eligible_callers) == prev_eligible_caller_size:
+                break
+
+            prev_eligible_caller_size = len(eligible_callers)
+
+        return list(
+            set(df_calls[df_calls.caller_no.isin(eligible_callers)].conversation_no)
         )
 
     def get_speaker_gender(self) -> dict[int, str]:

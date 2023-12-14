@@ -128,3 +128,5 @@ def preprocess(
         dict((k, i + 1) for (i, k) in enumerate(data.speaker_id.unique())),
         path.join(out_dir, "speaker-ids-all.pt"),
     )
+
+    print(dataset.get_conversations_with_min_speaker_repeat(min_repeat=3))
