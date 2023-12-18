@@ -142,8 +142,8 @@ class SwitchboardDataset(Dataset):
         conversation_speaker: dict[tuple[int, str], ConversationFile] = {}
 
         # First, we collect all the conversation files
-        dirs = list(os.walk(path.join(self.dataset_dir, "audio")))
-        for root, dirs, files in tqdm(dirs, desc="Loading conversations"):
+        dirs_walk = os.walk(path.join(self.dataset_dir, "audio"))
+        for root, _, files in tqdm(dirs_walk, desc="Loading conversations"):
             for filename in files:
                 if ".wav" not in filename:
                     continue
