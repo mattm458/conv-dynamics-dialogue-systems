@@ -108,11 +108,10 @@ def preprocess(ctx:Context, dataset: str, dataset_dir: str, resume_from_dir: Opt
     from cdmodel.preprocessing import preprocess
 
     preprocess(
-        dataset=dataset,
+        dataset_name=dataset,
         dataset_dir=path.normpath(dataset_dir),
-        dirname=None,
+        out_dir=None,
         n_jobs=8,
-        resume_from_dir=resume_from_dir,
     )
     pass
 
