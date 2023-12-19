@@ -1,11 +1,6 @@
-import os
-import re
-from collections import defaultdict
 from os import path
 
-import pandas as pd
 from bs4 import BeautifulSoup
-from tqdm import tqdm
 
 
 def get_dialogue_acts(
@@ -56,9 +51,15 @@ def get_terminals(
     )
 
     for w in soup.find_all("word"):
+        try:
+            start = float(w["nite:start"])
+            end = float(w["nite:start"])
+        except:
+            continue
+
         terminals[f"sw{id}.{speaker}.terminals.xml#id({w['nite:id']})"] = {
-            "start": w["nite:start"],
-            "end": w["nite:end"],
+            "start": start,
+            "end": end,
             "orth": w["orth"],
         }
 
@@ -82,5 +83,3 @@ def expand_terminals_da(dialogue_acts: list[dict], terminals: list[dict]) -> Non
             t["swbdtype"] = d["swbdtype"]
             t["nitetype"] = d["nitetype"]
         d["terminals"] = new_terminals
-
-

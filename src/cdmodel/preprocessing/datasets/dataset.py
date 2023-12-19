@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections import defaultdict
 from enum import Enum
 from functools import partial
 from typing import NamedTuple, Optional
@@ -26,7 +27,7 @@ class Segment(NamedTuple):
     speaker_id: int
     start: float
     end: float
-    da: Optional[str] = None
+    da: Optional[set[str]] = None
 
 
 class Segmentation(Enum):
@@ -58,6 +59,14 @@ def _process_trascript(
     sides: set[str] = set(conversation_audio.keys())
     speaker_ids: set[int] = set(x.speaker_id for x in transcript)
 
+    # Get all of the dialogue acts
+    da_all: set[str] = set()
+    has_da = False
+    for segment in transcript:
+        if segment.da is not None:
+            has_da = True
+            da_all = da_all.union(segment.da)
+
     for segment in transcript:
         features = segment._asdict()
         extracted_features = extract_features(
@@ -80,13 +89,25 @@ def _process_trascript(
             features["gender"] = speaker_gender[segment.speaker_id]
             features["gender_partner"] = speaker_gender[features["speaker_id_partner"]]
 
+        # Assemble all DAs into the final feature object
+        if has_da:
+            da_dict = dict(
+                [
+                    (
+                        f"da_{da}",
+                        1 if segment.da is not None and da in segment.da else 0,
+                    )
+                    for da in da_all
+                ]
+            )
+            features |= da_dict
+
         output.append(features)
 
     return output
 
 
 from matplotlib import pyplot as plt
-
 
 # Compute the Mel spectrograms of conversation-initial segments from each speaker
 # def _get_first_spectrograms(
@@ -161,6 +182,9 @@ class Dataset(ABC):
         # Get the transcripts according to the segmentation method we initialized with the dataset class
         transcripts = self.get_segmented_transcripts(conversations=conversations)
 
+        # If dialogue acts are stored separately, extract them here
+        transcripts = self.apply_dialogue_acts(transcripts=transcripts)
+
         # first_spectrograms = _get_all_first_spectrograms(
         #     transcripts,
         #     conversations,
@@ -201,6 +225,12 @@ class Dataset(ABC):
     @abstractmethod
     def get_segmented_transcripts(
         self, conversations: dict[int, list[ConversationFile]]
+    ) -> dict[int, list[Segment]]:
+        pass
+
+    @abstractmethod
+    def apply_dialogue_acts(
+        self, transcripts: dict[int, list[Segment]]
     ) -> dict[int, list[Segment]]:
         pass
 

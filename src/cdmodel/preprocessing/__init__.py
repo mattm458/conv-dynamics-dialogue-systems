@@ -78,8 +78,11 @@ def _extract_features(dataset: Dataset, out_dir: str) -> DataFrame:
     if path.exists(data_csv_path):
         print("data.csv exists, loading...")
         return pd.read_csv(data_csv_path)
+    
+    features = dataset.extract_features()
+    print(features)
 
-    data = pd.DataFrame(dataset.extract_features())
+    data = pd.DataFrame(features)
     data.to_csv(data_csv_path, index=False)
 
     return data
@@ -129,4 +132,5 @@ def preprocess(
         path.join(out_dir, "speaker-ids-all.pt"),
     )
 
-    print(dataset.get_conversations_with_min_speaker_repeat(min_repeat=3))
+    #print(dataset.get_conversations_with_min_speaker_repeat(min_repeat=3))
+
