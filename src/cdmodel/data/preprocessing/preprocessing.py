@@ -1,5 +1,6 @@
 from os import mkdir
 
+
 def preprocess(dataset, dataset_dir, embedding_out_dir):
     try:
         mkdir(embedding_out_dir)

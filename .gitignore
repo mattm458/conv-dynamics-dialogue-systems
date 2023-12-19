@@ -6,6 +6,8 @@ results*
 
 _ANALYSIS
 
+*.pt
+
 # Custom ML project exclusions
 lightning_logs/
 *.ipynb

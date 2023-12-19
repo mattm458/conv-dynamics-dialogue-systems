@@ -102,9 +102,9 @@ def stats(
 @main.command()
 @click.option("--dataset", required=True, type=str)
 @click.option("--dataset-dir", required=True, type=str)
-@click.option("--resume-from-dir", required=False, type=str)
+@click.option("--out-dir", required=False, type=str)
 @click.pass_context
-def preprocess(ctx:Context, dataset: str, dataset_dir: str, resume_from_dir: Optional[str]):
+def preprocess(ctx: Context, dataset: str, dataset_dir: str, out_dir: Optional[str]):
     from cdmodel.preprocessing import preprocess
 
     preprocess(

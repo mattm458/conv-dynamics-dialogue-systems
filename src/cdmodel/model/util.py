@@ -8,3 +8,6 @@ def lengths_to_mask(lengths: Tensor, max_size: int) -> Tensor:
     mask = mask >= lengths.unsqueeze(1)
     mask = mask.unsqueeze(2)
     return mask
+
+def timestep_split(tensor: Tensor) -> list[Tensor]:
+    return [x.squeeze(1) for x in torch.split(tensor, 1, dim=1)]

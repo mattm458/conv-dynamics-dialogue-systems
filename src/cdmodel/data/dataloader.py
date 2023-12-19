@@ -4,16 +4,31 @@ from torch.nn import functional as F
 from functools import partial
 
 
-def get_collate_fn(has_da=False, has_gender=False, has_speaker_identity=False):
+def get_collate_fn(
+    has_da=False,
+    has_gender=False,
+    has_speaker_identity=False,
+    has_spectrogram_agent=False,
+    has_spectrogram_partner=False,
+):
     return partial(
         collate_fn,
         has_da=has_da,
         has_gender=has_gender,
         has_speaker_identity=has_speaker_identity,
+        has_spectrogram_agent=has_spectrogram_agent,
+        has_spectrogram_partner=has_spectrogram_partner,
     )
 
 
-def collate_fn(batches, has_da, has_gender, has_speaker_identity):
+def collate_fn(
+    batches,
+    has_da,
+    has_gender,
+    has_speaker_identity,
+    has_spectrogram_agent,
+    has_spectrogram_partner,
+):
     features_all = []
     speakers_all = []
     embeddings_all = []
@@ -25,6 +40,10 @@ def collate_fn(batches, has_da, has_gender, has_speaker_identity):
     da_all = []
     speaker_identity_all = []
     partner_identity_all = []
+    spectrogram_agent_all = []
+    spectrogram_agent_len_all = []
+    spectrogram_partner_all = []
+    spectrogram_partner_len_all = []
 
     y_all = []
     y_len_all = []
@@ -54,6 +73,14 @@ def collate_fn(batches, has_da, has_gender, has_speaker_identity):
         if has_speaker_identity:
             speaker_identity_all.append(batch["speaker_identity"])
             partner_identity_all.append(batch["partner_identity"])
+
+        if has_spectrogram_agent:
+            spectrogram_agent_all.append(batch["spectrogram_agent"])
+            spectrogram_agent_len_all.append(batch["spectrogram_agent_len"])
+
+        if has_spectrogram_partner:
+            spectrogram_partner_all.append(batch["spectrogram_partner"])
+            spectrogram_partner_len_all.append(batch["spectrogram_partner_len"])
 
     features_all = nn.utils.rnn.pad_sequence(features_all, batch_first=True)
     speakers_all = nn.utils.rnn.pad_sequence(speakers_all, batch_first=True)
@@ -102,5 +129,17 @@ def collate_fn(batches, has_da, has_gender, has_speaker_identity):
         output["partner_identity"] = nn.utils.rnn.pad_sequence(
             partner_identity_all, batch_first=True
         )
+
+    if has_spectrogram_agent:
+        output["spectrogram_agent"] = nn.utils.rnn.pad_sequence(
+            spectrogram_agent_all, batch_first=True
+        )
+        output["spectrogram_agent_len"] = torch.LongTensor(spectrogram_agent_len_all)
+
+    if has_spectrogram_partner:
+        output["spectrogram_partner"] = nn.utils.rnn.pad_sequence(
+            spectrogram_partner_all, batch_first=True
+        )
+        output["spectrogram_partner_len"] = torch.LongTensor(spectrogram_partner_len_all)
 
     return output

@@ -1,3 +1,4 @@
+from abc import ABC
 from typing import List, Optional, Tuple
 
 import torch
@@ -55,7 +56,11 @@ class Encoder(torch.jit.ScriptModule):
         return x, new_hidden
 
 
-class Attention(torch.jit.ScriptModule):
+class AttentionModule(nn.Module):
+    pass
+
+
+class Attention(AttentionModule):
     def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
         super().__init__()
 
@@ -65,7 +70,6 @@ class Attention(torch.jit.ScriptModule):
         self.context = nn.Linear(context_dim, att_dim, bias=False)
         self.v = nn.Linear(att_dim, 1, bias=False)
 
-    @torch.jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, mask: Tensor
     ) -> Tuple[Tensor, Tensor]:
@@ -86,7 +90,7 @@ class Attention(torch.jit.ScriptModule):
         return att_applied, score_out
 
 
-class DualAttention(torch.jit.ScriptModule):
+class DualAttention(AttentionModule):
     def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
         super().__init__()
 
@@ -101,7 +105,6 @@ class DualAttention(torch.jit.ScriptModule):
             att_dim=att_dim,
         )
 
-    @torch.jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
     ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
@@ -120,7 +123,7 @@ class DualAttention(torch.jit.ScriptModule):
         return torch.cat([our_att, their_att], dim=-1), (our_scores, their_scores, None)
 
 
-class DualCombinedAttention(torch.jit.ScriptModule):
+class DualCombinedAttention(AttentionModule):
     def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
         super().__init__()
 
@@ -138,7 +141,6 @@ class DualCombinedAttention(torch.jit.ScriptModule):
             history_in_dim=history_in_dim, context_dim=context_dim, att_dim=att_dim
         )
 
-    @torch.jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
     ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
@@ -171,7 +173,7 @@ class DualCombinedAttention(torch.jit.ScriptModule):
         return combined_att, (our_scores, their_scores, combined_att_scores[:, 0])
 
 
-class SingleAttention(torch.jit.ScriptModule):
+class SingleAttention(AttentionModule):
     def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
         super().__init__()
 
@@ -181,7 +183,6 @@ class SingleAttention(torch.jit.ScriptModule):
             att_dim=att_dim,
         )
 
-    @torch.jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
     ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
@@ -194,8 +195,7 @@ class SingleAttention(torch.jit.ScriptModule):
         return att, (scores, None, None)
 
 
-class NoopAttention(torch.jit.ScriptModule):
-    @torch.jit.script_method
+class NoopAttention(AttentionModule):
     def forward(
         self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
     ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
@@ -288,7 +288,7 @@ class Decoder(torch.jit.ScriptModule):
 
         self.dropout = nn.Dropout(decoder_dropout)
 
-        linear_arr = [nn.Linear(hidden_dim, output_dim)]
+        linear_arr: list[nn.Module] = [nn.Linear(hidden_dim, output_dim)]
         if activation == "tanh":
             print("Decoder: Tanh activation")
             linear_arr.append(nn.Tanh())

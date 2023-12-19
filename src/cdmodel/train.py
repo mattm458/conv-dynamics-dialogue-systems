@@ -4,13 +4,15 @@ from os import path
 
 import lightning.pytorch as pl
 import numpy as np
+import pandas as pd
 import torch
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import TensorBoardLogger
 from torch.utils.data.dataloader import DataLoader
 
-from cdmodel.data.dataloader import get_collate_fn, collate_fn
+from cdmodel.data.dataloader import collate_fn, get_collate_fn
 from cdmodel.data.dataset import ConversationDataset
+from cdmodel.data.dataset_legacy import LegacyConversationDataset
 from cdmodel.model.config import get_model
 from cdmodel.util.cv import get_52_cv_ids, get_cv_ids
 from cdmodel.util.gpu_distributed_multiprocessing import run_distributed
@@ -96,7 +98,7 @@ def _do_cross_validate_52(
     logger = TensorBoardLogger(path.join(results_dir, "lightning_logs"), name=name)
 
     # Load the datasets and dataloaders
-    train_dataset = ConversationDataset(
+    train_dataset = LegacyConversationDataset(
         train_ids,
         embeddings_dir=embeddings_dir,
         conversation_data_dir=conversation_data_dir,
@@ -110,10 +112,10 @@ def _do_cross_validate_52(
         shuffle=True,
         pin_memory=True,
         drop_last=True,
-        num_workers=4,
+        num_workers=1,  # 4,
         multiprocessing_context="fork",
     )
-    val_dataset = ConversationDataset(
+    val_dataset = LegacyConversationDataset(
         val_ids,
         embeddings_dir=embeddings_dir,
         conversation_data_dir=conversation_data_dir,
@@ -127,7 +129,7 @@ def _do_cross_validate_52(
         shuffle=False,
         pin_memory=True,
         drop_last=False,
-        num_workers=4,
+        num_workers=1,  # 4,
         multiprocessing_context="fork",
     )
 
@@ -228,7 +230,6 @@ def standard_train(
     training_config,
     model_config,
     device,
-    n_jobs,
     embeddings_dir,
     conversation_data_dir,
     resume=None,
@@ -260,6 +261,14 @@ def standard_train(
     speaker_identity_always_us = dataset_config["speaker_identity_always_us"]
     zero_pad = dataset_config["zero_pad"]
     agent_assignment = dataset_config["agent_assignment"]
+    spectrogram_agent = dataset_config["spectrogram_agent"]
+    spectrogram_partner = dataset_config["spectrogram_partner"]
+    speaker_id_encode_override = dataset_config["speaker_id_encode_override"]
+
+    spectrogram_dir = None
+    if "spectrogram_dir" in dataset_config:
+        spectrogram_dir = dataset_config["spectrogram_dir"]
+        
 
     name = f"{training_config['name']}_{i}"
 
@@ -328,7 +337,17 @@ def standard_train(
     logger = TensorBoardLogger(path.join(results_dir, "lightning_logs"), name=name)
 
     # Load the datasets and dataloaders
-    train_dataset = ConversationDataset(
+    Dataset = ConversationDataset
+    if "version" in dataset_config and dataset_config["version"] == "legacy":
+        Dataset = LegacyConversationDataset
+
+    speaker_id_encode_override_ids = None
+    if speaker_id_encode_override is not None:
+        speaker_id_encode_override_ids = list(
+            pd.read_csv(speaker_id_encode_override, header=None)[0]
+        )
+
+    train_dataset = Dataset(
         train_ids,
         embeddings_dir=embeddings_dir,
         conversation_data_dir=conversation_data_dir,
@@ -339,12 +358,19 @@ def standard_train(
         speaker_identity_always_us=speaker_identity_always_us,
         zero_pad=zero_pad,
         agent_assignment=agent_assignment,
+        spectrogram_agent=spectrogram_agent,
+        spectrogram_partner=spectrogram_partner,
+        spectrogram_dir=spectrogram_dir,
+        speaker_id_encode_override=speaker_id_encode_override_ids,
     )
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=training_config["batch_size"],
         collate_fn=get_collate_fn(
-            has_gender=gender, has_speaker_identity=speaker_identity
+            has_gender=gender,
+            has_speaker_identity=speaker_identity,
+            has_spectrogram_agent=spectrogram_agent,
+            has_spectrogram_partner=spectrogram_partner,
         ),
         shuffle=True,
         pin_memory=True,
@@ -352,7 +378,7 @@ def standard_train(
         num_workers=4,
         multiprocessing_context="fork",
     )
-    val_dataset = ConversationDataset(
+    val_dataset = Dataset(
         val_ids,
         embeddings_dir=embeddings_dir,
         conversation_data_dir=conversation_data_dir,
@@ -363,12 +389,19 @@ def standard_train(
         speaker_identity_always_us=speaker_identity_always_us,
         zero_pad=zero_pad,
         agent_assignment=agent_assignment,
+        spectrogram_agent=spectrogram_agent,
+        spectrogram_partner=spectrogram_partner,
+        spectrogram_dir=spectrogram_dir,
+        speaker_id_encode_override=speaker_id_encode_override_ids,
     )
     val_dataloader = DataLoader(
         val_dataset,
         batch_size=training_config["batch_size"],
         collate_fn=get_collate_fn(
-            has_gender=gender, has_speaker_identity=speaker_identity
+            has_gender=gender,
+            has_speaker_identity=speaker_identity,
+            has_spectrogram_agent=spectrogram_agent,
+            has_spectrogram_partner=spectrogram_partner,
         ),
         shuffle=False,
         pin_memory=True,
@@ -392,6 +425,7 @@ def standard_train(
         logger=logger,
         enable_progress_bar=True,
         max_epochs=1000,
+        gradient_clip_val=1.0,
     )
 
     trainer.fit(

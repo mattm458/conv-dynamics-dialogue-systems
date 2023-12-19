@@ -1,11 +1,15 @@
+from typing import Optional
+
 import numpy as np
 import torch
 from lightning import pytorch as pl
 from matplotlib import pyplot as plt
-from torch import nn
+from prosody_modeling.model.prosody_model import ProsodyModel
+from torch import Tensor, nn
 from torch.nn import functional as F
 
 from cdmodel.model.components import (
+    AttentionModule,
     Decoder,
     DualAttention,
     DualCombinedAttention,
@@ -14,6 +18,7 @@ from cdmodel.model.components import (
     NoopAttention,
     SingleAttention,
 )
+from cdmodel.model.util import timestep_split
 
 US = torch.tensor([0.0, 1.0])
 THEM = torch.tensor([1.0, 0.0])
@@ -28,33 +33,43 @@ def save_figure_to_numpy(fig):
 class SequentialConversationModel(pl.LightningModule):
     def __init__(
         self,
-        feature_names,
-        embedding_dim,
-        embedding_encoder_out_dim,
-        embedding_encoder_num_layers,
-        embedding_encoder_dropout,
-        embedding_encoder_att_dim,
-        encoder_hidden_dim,
-        encoder_num_layers,
-        encoder_dropout,
-        decoder_att_dim,
-        decoder_hidden_dim,
-        decoder_num_layers,
-        decoder_dropout,
-        num_decoders,
-        attention_style,
-        lr,
-        gender=False,
-        da=False,
-        speaker_identity=False,
-        speaker_identity_count=None,  # 520,
-        speaker_identity_dim=None,  # 32,
-        speaker_identity_partner=False,
-        speaker_identity_encoder=True,
+        feature_names: list[str],
+        embedding_dim: int,
+        embedding_encoder_out_dim: int,
+        embedding_encoder_num_layers: int,
+        embedding_encoder_dropout: float,
+        embedding_encoder_att_dim: int,
+        encoder_hidden_dim: int,
+        encoder_num_layers: int,
+        encoder_dropout: float,
+        decoder_att_dim: int,
+        decoder_hidden_dim: int,
+        decoder_num_layers: int,
+        decoder_dropout: float,
+        num_decoders: int,
+        attention_style: str,
+        lr: float,
+        gender: bool = False,
+        da: bool = False,
+        speaker_identity: bool = False,
+        speaker_identity_count: Optional[int] = None,  # 520,
+        speaker_identity_dim: Optional[int] = None,  # 32,
+        speaker_identity_partner: bool = False,
+        speaker_identity_encoder: bool = False,
+        spectrogram_agent_encoder: bool = False,
+        spectrogram_partner_encoder: bool = False,
+        spectrogram_agent_encoder_out_dim: Optional[int] = None,
     ):
         super().__init__()
 
         self.save_hyperparameters()
+
+        self.validation_outputs: list[Tensor] = []
+        self.validation_attention_ours: list[Tensor] = []
+        self.validation_attention_ours_history_mask: list[Tensor] = []
+        self.validation_attention_theirs: list[Tensor] = []
+        self.validation_attention_theirs_history_mask: list[Tensor] = []
+        self.validation_data: list[tuple[Tensor, Tensor]] = []
 
         self.gender = gender
         self.da = da
@@ -70,13 +85,34 @@ class SequentialConversationModel(pl.LightningModule):
         self.speaker_identity_partner = speaker_identity_partner
         self.speaker_identity_encoder = speaker_identity_encoder
 
-        if speaker_identity:
-            self.speaker_identity_embedding = nn.Embedding(
-                num_embeddings=speaker_identity_count + 1,
-                padding_idx=0,
-                embedding_dim=speaker_identity_dim,
-            )
+        self.spectrogram_agent_encoder = spectrogram_agent_encoder
+        self.spectrogram_partner_encoder = spectrogram_partner_encoder
 
+        # Set up dimensions
+        # =====================
+        # Encoder inputs
+        encoder_in_dim = len(feature_names) + embedding_encoder_out_dim + 2
+
+        # History: encoder outputs at each timestep
+        history_dim = encoder_hidden_dim
+        # If we're using speaker identities, they are concatenated with the history
+        if speaker_identity and speaker_identity_dim:
+            history_dim += speaker_identity_dim
+
+        # Attention context dim: consists of the decoder hidden state,
+        # plus encoded embeddings for the next timestep
+        att_context_dim = embedding_encoder_att_dim + decoder_hidden_dim
+
+        # Decoder input: Decoder input consits of the following components:
+        #   - Attention-summarized historical input, equal to history_dim
+        #   - Encoded embeddings for the next timestep
+        #   - Speaker role for the next timestep
+        att_multiplier = 2 if attention_style == "dual" else 1
+        decoder_in_dim = embedding_encoder_att_dim + (history_dim * att_multiplier) + 2
+
+        # Encoders
+        # =====================
+        # Embedding encoder for textual data
         self.embedding_encoder = EmbeddingEncoder(
             embedding_dim=embedding_dim,
             encoder_out_dim=embedding_encoder_out_dim,
@@ -85,14 +121,8 @@ class SequentialConversationModel(pl.LightningModule):
             attention_dim=embedding_encoder_att_dim,
         )
 
-        encoder_in_dim = len(feature_names) + embedding_encoder_out_dim + 2
-
-        if self.gender:
-            encoder_in_dim += 2
-
-        if self.speaker_identity and self.speaker_identity_encoder:
-            encoder_in_dim += speaker_identity_dim
-
+        # Main encoder for input features
+        print(f"Encoder: encoder_hidden_dim = {encoder_hidden_dim}")
         self.encoder = Encoder(
             in_dim=encoder_in_dim,
             hidden_dim=encoder_hidden_dim,
@@ -100,56 +130,61 @@ class SequentialConversationModel(pl.LightningModule):
             dropout=encoder_dropout,
         )
 
+        # Embeddings
+        # =====================
+        # If using speaker identities, set up speaker identity embeddings.
+        if speaker_identity:
+            if speaker_identity_dim is None:
+                raise Exception(
+                    "If using speaker identity embeddings, speaker_identity_dim is required"
+                )
+            if speaker_identity_count is None:
+                raise Exception(
+                    "If using speaker identity embeddings, speaker_identity_count is required"
+                )
+
+            self.speaker_identity_embedding = nn.Embedding(
+                num_embeddings=speaker_identity_count + 1,
+                padding_idx=0,
+                embedding_dim=speaker_identity_dim,
+            )
+
+        # Attention layers
+        # =====================
+        print(f"Attention: attention_in_dim = {history_dim}")
         self.attentions = nn.ModuleList()
-        self.decoders = nn.ModuleList()
-
-        decoder_attention_context_dim = embedding_encoder_att_dim + (
-            encoder_hidden_dim * encoder_num_layers
-        )
-
-        attention_multiplier = 2 if attention_style == "dual" else 1
-        decoder_in_dim = (
-            embedding_encoder_att_dim + (encoder_hidden_dim * attention_multiplier) + 2
-        )
-
-        if self.gender:
-            decoder_attention_context_dim += 2
-            decoder_in_dim += 2
-
-        if self.speaker_identity:
-            decoder_attention_context_dim += speaker_identity_dim
-            decoder_in_dim += speaker_identity_dim
-
-            if self.speaker_identity_partner:
-                decoder_attention_context_dim += speaker_identity_dim
-                decoder_in_dim += speaker_identity_dim
-
         for i in range(num_decoders):
             if attention_style == "dual_combined":
-                attention = DualCombinedAttention(
-                    history_in_dim=encoder_hidden_dim,
-                    context_dim=decoder_attention_context_dim,
+                attention: AttentionModule = DualCombinedAttention(
+                    history_in_dim=history_dim,
+                    context_dim=att_context_dim,
                     att_dim=decoder_att_dim,
                 )
             elif attention_style == "dual":
-                attention = DualAttention(
-                    history_in_dim=encoder_hidden_dim,
-                    context_dim=decoder_attention_context_dim,
+                attention: AttentionModule = DualAttention(
+                    history_in_dim=history_dim,
+                    context_dim=att_context_dim,
                     att_dim=decoder_att_dim,
                 )
             elif attention_style == "single":
-                attention = SingleAttention(
-                    history_in_dim=encoder_hidden_dim,
-                    context_dim=decoder_attention_context_dim,
+                attention: AttentionModule = SingleAttention(
+                    history_in_dim=history_dim,
+                    context_dim=att_context_dim,
                     att_dim=decoder_att_dim,
                 )
             elif attention_style == "noop":
-                attention = NoopAttention()
+                attention: AttentionModule = NoopAttention()
             else:
                 raise Exception(f"Unrecognized attention style '{attention_style}'")
 
             self.attentions.append(attention)
 
+        # Decoders
+        # =====================
+        print(f"Decoder: decoder_in_dim = {decoder_in_dim}")
+        print(f"Decoder: decoder_hidden_dim =  {decoder_hidden_dim}")
+        self.decoders = nn.ModuleList()
+        for i in range(num_decoders):
             self.decoders.append(
                 Decoder(
                     decoder_in_dim=decoder_in_dim,
@@ -160,6 +195,28 @@ class SequentialConversationModel(pl.LightningModule):
                     activation=None,
                 )
             )
+
+        # if spectrogram_agent_encoder or spectrogram_partner_encoder:
+        #     if not spectrogram_agent_encoder_out_dim:
+        #         raise Exception(
+        #             "If using an agent spectrogram encoder, spectrogram_agent_encoder_out_dim is required!"
+        #         )
+
+        #     if spectrogram_agent_encoder:
+        #         # decoder_attention_context_dim += spectrogram_agent_encoder_out_dim
+        #         decoder_in_dim += spectrogram_agent_encoder_out_dim
+        #     if spectrogram_partner_encoder:
+        #         # decoder_attention_context_dim += spectrogram_agent_encoder_out_dim
+        #         decoder_in_dim += spectrogram_agent_encoder_out_dim
+
+        #     self.spectrogram_encoder = ProsodyModel(
+        #         conv_out_dim=2560,
+        #         rnn_in_dim=768,
+        #         use_deltas=True,
+        #         rnn_layers=2,
+        #         rnn_dropout=0.5,
+        #         num_features=spectrogram_agent_encoder_out_dim,
+        #     )
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.lr)
@@ -187,10 +244,28 @@ class SequentialConversationModel(pl.LightningModule):
         if self.speaker_identity_partner:
             partner_identities = batch["partner_identity"]
 
+        spectrogram_agent = None
+        spectrogram_agent_len = None
+        if self.spectrogram_agent_encoder:
+            spectrogram_agent = batch["spectrogram_agent"]
+            spectrogram_agent_len = batch["spectrogram_agent_len"]
+
+        spectrogram_partner = None
+        spectrogram_partner_len = None
+        if self.spectrogram_partner_encoder:
+            spectrogram_partner = batch["spectrogram_partner"]
+            spectrogram_partner_len = batch["spectrogram_partner_len"]
+
         batch_size = features.shape[0]
         device = features.device
 
-        our_features_pred, _, _, _, _ = self(
+        (
+            our_features_pred,
+            our_scores_all,
+            our_history_mask,
+            their_scores_all,
+            their_history_mask,
+        ) = self(
             features,
             speakers,
             embeddings,
@@ -200,7 +275,12 @@ class SequentialConversationModel(pl.LightningModule):
             genders=genders,
             speaker_identities=speaker_identities,
             partner_identities=partner_identities,
+            agent_spectrogram=spectrogram_agent,
+            agent_spectrogram_len=spectrogram_agent_len,
+            partner_spectrogram=spectrogram_partner,
+            partner_spectrogram_len=spectrogram_partner_len,
         )
+
         y_mask = torch.arange(y.shape[1], device=device).unsqueeze(0)
         y_mask = y_mask.repeat(batch_size, 1)
         y_mask = y_mask < y_len.unsqueeze(1)
@@ -208,7 +288,7 @@ class SequentialConversationModel(pl.LightningModule):
         loss = F.mse_loss(our_features_pred[predict], y[y_mask])
         loss_l1 = F.smooth_l1_loss(our_features_pred[predict], y[y_mask])
 
-        self.log("validation_loss", loss, on_epoch=True, on_step=False)
+        self.log("validation_loss", loss, on_epoch=True, on_step=False, prog_bar=True)
         self.log("validation_loss_l1", loss_l1, on_epoch=True, on_step=False)
 
         for feature_idx, feature_name in enumerate(self.feature_names):
@@ -222,12 +302,49 @@ class SequentialConversationModel(pl.LightningModule):
                 on_step=False,
             )
 
+        self.validation_outputs.append(our_features_pred)
+        self.validation_data.append(batch)
+        self.validation_attention_ours.append(our_scores_all)
+        self.validation_attention_ours_history_mask.append(our_history_mask)
+        self.validation_attention_theirs.append(their_scores_all)
+        self.validation_attention_theirs_history_mask.append(their_history_mask)
+
         return loss
 
-    # def training_step_end(self, outputs):
-    #     if self.global_step % 500 == 0:
-    #         for name, parameter in self.named_parameters():
-    #             self.logger.experiment.add_histogram(name, parameter, self.global_step)
+    def on_validation_epoch_end(self):
+        # self.validation_outputs.append(our_features_pred)
+        # self.validation_data.append((features, speakers, predict))
+
+        torch.save(
+            (
+                self.validation_outputs,
+                self.validation_data,
+                self.validation_attention_ours,
+                self.validation_attention_ours_history_mask,
+                self.validation_attention_theirs,
+                self.validation_attention_theirs_history_mask,
+            ),
+            "validation_data.pt",
+        )
+
+        self.validation_outputs.clear()
+        self.validation_data.clear()
+        self.validation_attention_ours.clear()
+        self.validation_attention_ours_history_mask.clear()
+        self.validation_attention_theirs.clear()
+        self.validation_attention_theirs_history_mask.clear()
+        exit()
+
+    def on_train_epoch_end(self):
+        for name, parameter in self.named_parameters():
+            self.logger.experiment.add_histogram(name, parameter, self.global_step)
+
+        if self.speaker_identity:
+            self.logger.experiment.add_embedding(
+                self.speaker_identity_embedding.weight,
+                tag="Speaker identity",
+                global_step=self.global_step,
+            )
 
     def training_step(self, batch, batch_idx):
         features = batch["features"]
@@ -252,6 +369,18 @@ class SequentialConversationModel(pl.LightningModule):
         if self.speaker_identity_partner:
             partner_identities = batch["partner_identity"]
 
+        spectrogram_agent = None
+        spectrogram_agent_len = None
+        if self.spectrogram_agent_encoder:
+            spectrogram_agent = batch["spectrogram_agent"]
+            spectrogram_agent_len = batch["spectrogram_agent_len"]
+
+        spectrogram_partner = None
+        spectrogram_partner_len = None
+        if self.spectrogram_partner_encoder:
+            spectrogram_partner = batch["spectrogram_partner"]
+            spectrogram_partner_len = batch["spectrogram_partner_len"]
+
         batch_size = features.shape[0]
         device = features.device
 
@@ -265,6 +394,11 @@ class SequentialConversationModel(pl.LightningModule):
             genders=genders,
             speaker_identities=speaker_identities,
             partner_identities=partner_identities,
+            agent_spectrogram=spectrogram_agent,
+            agent_spectrogram_len=spectrogram_agent_len,
+            partner_spectrogram=spectrogram_partner,
+            partner_spectrogram_len=spectrogram_partner_len,
+            autoregress_prob=0.0,
         )
 
         y_mask = torch.arange(y.shape[1], device=device).unsqueeze(0)
@@ -273,7 +407,9 @@ class SequentialConversationModel(pl.LightningModule):
 
         loss = F.mse_loss(our_features_pred[predict], y[y_mask])
 
-        self.log("training_loss", loss.detach(), on_epoch=True, on_step=True)
+        self.log(
+            "training_loss", loss.detach(), on_epoch=True, on_step=True, prog_bar=True
+        )
         for feature_idx, feature_name in enumerate(self.feature_names):
             self.log(
                 f"training_loss_l1_{feature_name}",
@@ -302,6 +438,10 @@ class SequentialConversationModel(pl.LightningModule):
         genders=None,
         speaker_identities=None,
         partner_identities=None,
+        agent_spectrogram=None,
+        agent_spectrogram_len=None,
+        partner_spectrogram=None,
+        partner_spectrogram_len=None,
     ):
         # Get some basic information from the input tensors
         batch_size = features.shape[0]
@@ -316,9 +456,11 @@ class SequentialConversationModel(pl.LightningModule):
 
         if self.speaker_identity:
             speaker_identities = self.speaker_identity_embedding(speaker_identities)
+            speaker_identities = timestep_split(speaker_identities)
 
             if self.speaker_identity_partner:
                 partner_identities = self.speaker_identity_embedding(partner_identities)
+                partner_identities = timestep_split(partner_identities)
 
         # Create masks that represent our and their timesteps in the history
         if self.US is None:
@@ -330,25 +472,13 @@ class SequentialConversationModel(pl.LightningModule):
         their_history_mask = (speakers == self.THEM).all(dim=-1)
 
         # For efficiency, preemptively split some inputs by timestep
-        features = [x.squeeze(1) for x in torch.split(features, 1, dim=1)]
-        predict = [x.squeeze(1) for x in torch.split(predict, 1, dim=1)]
-        speakers = [x.squeeze(1) for x in torch.split(speakers, 1, dim=1)]
-        embeddings_encoded = [
-            x.squeeze(1) for x in torch.split(embeddings_encoded, 1, dim=1)
-        ]
+        features = timestep_split(features)
+        predict = timestep_split(predict)
+        speakers = timestep_split(speakers)
+        embeddings_encoded = timestep_split(embeddings_encoded)
 
         if self.gender:
-            genders = [x.squeeze(1) for x in torch.split(genders, 1, dim=1)]
-
-        if self.speaker_identity:
-            speaker_identities = [
-                x.squeeze(1) for x in torch.split(speaker_identities, 1, dim=1)
-            ]
-
-            if self.speaker_identity_partner:
-                partner_identities = [
-                    x.squeeze(1) for x in torch.split(partner_identities, 1, dim=1)
-                ]
+            genders = timestep_split(genders)
 
         # Create initial zero hidden states for the encoder and decoder(s)
         encoder_hidden = self.encoder.get_hidden(batch_size=batch_size, device=device)
@@ -366,6 +496,20 @@ class SequentialConversationModel(pl.LightningModule):
         prev_features = torch.zeros((batch_size, self.num_features), device=device)
         prev_predict = torch.zeros((batch_size,), device=device, dtype=torch.bool)
 
+        spectrogram_agent_encoded = None
+        if self.spectrogram_agent_encoder:
+            spectrogram_agent_encoded, _, _, _ = self.spectrogram_encoder(
+                agent_spectrogram, agent_spectrogram_len
+            )
+            spectrogram_agent_encoded = F.tanh(spectrogram_agent_encoded)
+
+        spectrogram_partner_encoded = None
+        if self.spectrogram_partner_encoder:
+            spectrogram_partner_encoded, _, _, _ = self.spectrogram_encoder(
+                partner_spectrogram, partner_spectrogram_len
+            )
+            spectrogram_partner_encoded = F.tanh(spectrogram_partner_encoded)
+
         # Iterate through the entire conversation
         for i in range(num_timesteps - 1):
             # Autoregression/teacher forcing:
@@ -373,7 +517,7 @@ class SequentialConversationModel(pl.LightningModule):
             # back into the model, or False if the ground truth value should be used instead
             # (i.e., teacher forcing)
             autoregress_mask = prev_predict * (
-                torch.rand(prev_predict.shape, device=device) < autoregress_prob
+                torch.rand(prev_predict.shape, device=device) < 1.0  # autoregress_prob
             )
             features_timestep = features[i].clone()
             features_timestep[autoregress_mask] = (
@@ -390,12 +534,12 @@ class SequentialConversationModel(pl.LightningModule):
                 gender_next = genders[i + 1]
 
             if self.speaker_identity:
-                speaker_identity_timestep = speaker_identities[i]
-                speaker_identity_next = speaker_identities[i + 1]
+                speaker_identity_timestep = speaker_identities[0]
+                speaker_identity_next = speaker_identities[1]
 
                 if self.speaker_identity_partner:
-                    partner_identity_timestep = partner_identities[i]
-                    partner_identity_next = partner_identities[i + 1]
+                    partner_identity_timestep = partner_identities[0]
+                    partner_identity_next = partner_identities[1]
 
             # Get some timestep-specific data from the input
             embeddings_encoded_timestep = embeddings_encoded[i]
@@ -420,6 +564,8 @@ class SequentialConversationModel(pl.LightningModule):
 
             # Encode the input and append it to the history.
             encoded, encoder_hidden = self.encoder(encoder_in, encoder_hidden)
+            encoded = torch.concat([encoded, speaker_identity_timestep], dim=1)
+
             history.append(encoded.unsqueeze(1))
 
             # Concatenate the history tensor and select specific batch indexes where we are predicting
@@ -434,14 +580,21 @@ class SequentialConversationModel(pl.LightningModule):
             # Assemble the attention context vector for each of the decoder attention layer(s)
             att_contexts = []
             for h in decoder_hidden:
-                att_contexts_arr = h + [embeddings_encoded_timestep_next_pred]
-                if self.gender:
-                    att_contexts_arr.append(gender_next)
-                if self.speaker_identity:
-                    att_contexts_arr.append(speaker_identity_next)
+                att_contexts_arr = [h[-1], embeddings_encoded_timestep_next_pred]
 
-                    if self.speaker_identity_partner:
-                        att_contexts_arr.append(partner_identity_next)
+                # if self.gender:
+                #     att_contexts_arr.append(gender_next)
+                # if self.speaker_identity:
+                #     att_contexts_arr.append(speaker_identity_next)
+
+                #     if self.speaker_identity_partner:
+                #         att_contexts_arr.append(partner_identity_next)
+
+                # if self.spectrogram_agent_encoder:
+                #     att_contexts_arr.append(spectrogram_agent_encoded)
+
+                # if self.spectrogram_partner_encoder:
+                #     att_contexts_arr.append(spectrogram_partner_encoded)
 
                 att_contexts.append(torch.cat(att_contexts_arr, dim=-1))
 
@@ -486,10 +639,16 @@ class SequentialConversationModel(pl.LightningModule):
                 if self.gender:
                     decoder_in_arr.append(gender_next)
 
-                if self.speaker_identity:
-                    decoder_in_arr.append(speaker_identity_next)
-                    if self.speaker_identity_partner:
-                        decoder_in_arr.append(partner_identity_next)
+                # if self.speaker_identity:
+                #     decoder_in_arr.append(speaker_identity_next)
+                #     if self.speaker_identity_partner:
+                #         decoder_in_arr.append(partner_identity_next)
+
+                # if self.spectrogram_agent_encoder:
+                #     decoder_in_arr.append(spectrogram_agent_encoded)
+
+                # if self.spectrogram_partner_encoder:
+                #     decoder_in_arr.append(spectrogram_partner_encoded)
 
                 decoder_in = torch.cat(decoder_in_arr, dim=-1)
 
