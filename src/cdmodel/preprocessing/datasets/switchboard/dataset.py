@@ -1,5 +1,6 @@
 import os
 import re
+from collections import Counter
 from os import path
 from typing import Optional
 
@@ -66,12 +67,11 @@ class SwitchboardDataset(Dataset):
 
     def apply_dialogue_acts(
         self, transcripts: dict[int, list[Segment]]
-    ) -> dict[int, list[Segment]]:
+    ) -> tuple[dict[int, list[Segment]], list[tuple[str, int]]]:
         transcripts_out: dict[int, list[Segment]] = {}
+        da_counter: Counter[str] = Counter()
 
-        for id, segments in transcripts.items():
-            segments_out: list[Segment] = []
-
+        for id, segments in tqdm(transcripts.items(), desc="Processing dialogue acts"):
             try:
                 da_a = get_dialogue_acts(id, "A", self.dataset_dir)
                 da_b = get_dialogue_acts(id, "B", self.dataset_dir)
@@ -79,11 +79,16 @@ class SwitchboardDataset(Dataset):
                 terminals_a = get_terminals(id, "A", self.dataset_dir)
                 terminals_b = get_terminals(id, "B", self.dataset_dir)
             except Exception as e:
+                transcripts_out[id] = segments
                 continue
+
+            da_counter.update([x["nitetype"] for x in da_a])
+            da_counter.update([x["nitetype"] for x in da_b])
 
             expand_terminals_da(da_a, terminals_a)
             expand_terminals_da(da_b, terminals_b)
 
+            segments_out: list[Segment] = []
             for segment in segments:
                 if segment.side == "A":
                     side_terminals = terminals_a.values()
@@ -93,7 +98,8 @@ class SwitchboardDataset(Dataset):
                 segment_da = set(
                     x["nitetype"]
                     for x in side_terminals
-                    if not ((x["end"] < segment.start) or (x["start"] > segment.end))
+                    if "nitetype" in x
+                    and not ((x["end"] < segment.start) or (x["start"] > segment.end))
                 )
 
                 segments_out.append(
@@ -107,9 +113,9 @@ class SwitchboardDataset(Dataset):
                     )
                 )
 
-                transcripts_out[id] = segments_out
+            transcripts_out[id] = segments_out
 
-        return transcripts_out
+        return transcripts_out, da_counter.most_common()
 
     def get_conversations_with_min_speaker_repeat(self, min_repeat: int) -> list[int]:
         conversation_ids: list[int] = []
@@ -238,11 +244,11 @@ class SwitchboardDataset(Dataset):
     def filter_conversations(
         self, conversations: dict[int, list[ConversationFile]]
     ) -> dict[int, list[ConversationFile]]:
-        # DEBUG - REMOVE
-        out = {}
-        out[4345] = conversations[4345]
-        out[3029] = conversations[4785]
-        return out
+        # # DEBUG - REMOVE
+        # out = {}
+        # out[4345] = conversations[4345]
+        # out[3029] = conversations[4785]
+        # return out
         return conversations
 
     def get_segmented_transcripts(

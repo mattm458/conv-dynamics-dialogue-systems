@@ -35,13 +35,25 @@ class Segmentation(Enum):
     IPU = "ipu"
 
 
+def _da_vote(candidates: set[str], most_common: list[str]) -> str:
+    winner = min([most_common.index(x) for x in candidates])
+    return most_common[winner]
+
+
 # This function performs feature extraction on all segments within a conversation.
-def _process_trascript(
+def _process_transcript(
     conversation_id: int,
     transcript: list[Segment],
     conversations: dict[int, list[ConversationFile]],
     speaker_gender: Optional[dict] = None,
+    da_counts: Optional[list[tuple[str, int]]] = None,
 ) -> list[dict]:
+    da_precedence: list[str] = []
+    has_da = False
+    if da_counts is not None:
+        has_da = True
+        da_precedence = [da for (da, _) in da_counts]
+
     conversation_files = conversations[conversation_id]
 
     # Open the conversation files
@@ -58,14 +70,6 @@ def _process_trascript(
     # determining partner at each segment
     sides: set[str] = set(conversation_audio.keys())
     speaker_ids: set[int] = set(x.speaker_id for x in transcript)
-
-    # Get all of the dialogue acts
-    da_all: set[str] = set()
-    has_da = False
-    for segment in transcript:
-        if segment.da is not None:
-            has_da = True
-            da_all = da_all.union(segment.da)
 
     for segment in transcript:
         features = segment._asdict()
@@ -91,16 +95,21 @@ def _process_trascript(
 
         # Assemble all DAs into the final feature object
         if has_da:
+            if segment.da is not None and len(segment.da) > 0:
+                features["da_consolidated"] = _da_vote(segment.da, da_precedence)
+
             da_dict = dict(
                 [
                     (
                         f"da_{da}",
                         1 if segment.da is not None and da in segment.da else 0,
                     )
-                    for da in da_all
+                    for da in da_precedence
                 ]
             )
             features |= da_dict
+
+        del features["da"]
 
         output.append(features)
 
@@ -183,7 +192,7 @@ class Dataset(ABC):
         transcripts = self.get_segmented_transcripts(conversations=conversations)
 
         # If dialogue acts are stored separately, extract them here
-        transcripts = self.apply_dialogue_acts(transcripts=transcripts)
+        transcripts, da_counts = self.apply_dialogue_acts(transcripts=transcripts)
 
         # first_spectrograms = _get_all_first_spectrograms(
         #     transcripts,
@@ -199,9 +208,10 @@ class Dataset(ABC):
         processed = pqdm(
             transcripts.items(),
             partial(
-                _process_trascript,
+                _process_transcript,
                 speaker_gender=speaker_gender,
                 conversations=conversations,
+                da_counts=da_counts,
             ),
             n_jobs=self.n_jobs,
             argument_type="args",
@@ -231,7 +241,7 @@ class Dataset(ABC):
     @abstractmethod
     def apply_dialogue_acts(
         self, transcripts: dict[int, list[Segment]]
-    ) -> dict[int, list[Segment]]:
+    ) -> tuple[dict[int, list[Segment]], list[tuple[str, int]]]:
         pass
 
     def get_speaker_gender(self) -> Optional[dict[int, str]]:

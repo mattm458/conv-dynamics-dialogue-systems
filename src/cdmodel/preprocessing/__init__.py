@@ -80,7 +80,6 @@ def _extract_features(dataset: Dataset, out_dir: str) -> DataFrame:
         return pd.read_csv(data_csv_path)
     
     features = dataset.extract_features()
-    print(features)
 
     data = pd.DataFrame(features)
     data.to_csv(data_csv_path, index=False)
