@@ -12,6 +12,7 @@ from pqdm.processes import pqdm
 
 # from speech_utils.audio.transforms.mel_spectrogram import TacotronMelSpectrogram
 from speech_utils.preprocessing.feature_extraction import extract_features
+from cdmodel.preprocessing.datasets.da import da_vote, da_consolidate_category
 
 
 class ConversationFile(NamedTuple):
@@ -35,25 +36,14 @@ class Segmentation(Enum):
     IPU = "ipu"
 
 
-def _da_vote(candidates: set[str], most_common: list[str]) -> str:
-    winner = min([most_common.index(x) for x in candidates])
-    return most_common[winner]
-
-
 # This function performs feature extraction on all segments within a conversation.
 def _process_transcript(
     conversation_id: int,
     transcript: list[Segment],
     conversations: dict[int, list[ConversationFile]],
     speaker_gender: Optional[dict] = None,
-    da_counts: Optional[list[tuple[str, int]]] = None,
+    da_precedence: Optional[list[str]] = None,
 ) -> list[dict]:
-    da_precedence: list[str] = []
-    has_da = False
-    if da_counts is not None:
-        has_da = True
-        da_precedence = [da for (da, _) in da_counts]
-
     conversation_files = conversations[conversation_id]
 
     # Open the conversation files
@@ -94,9 +84,11 @@ def _process_transcript(
             features["gender_partner"] = speaker_gender[features["speaker_id_partner"]]
 
         # Assemble all DAs into the final feature object
-        if has_da:
+        if da_precedence is not None:
             if segment.da is not None and len(segment.da) > 0:
-                features["da_consolidated"] = _da_vote(segment.da, da_precedence)
+                da_consolidated = da_vote(segment.da, da_precedence)
+                features["da_consolidated"] = da_consolidated
+                features["da_category"] = da_consolidate_category(da_consolidated)
 
             da_dict = dict(
                 [
@@ -194,7 +186,8 @@ class Dataset(ABC):
         transcripts = self.get_segmented_transcripts(conversations=conversations)
 
         # If dialogue acts are stored separately, extract them here
-        transcripts, da_counts = self.apply_dialogue_acts(transcripts=transcripts)
+        transcripts, da_precedence = self.apply_dialogue_acts(transcripts=transcripts)
+        da_precedence = [da for (da, _) in da_precedence]
 
         # first_spectrograms = _get_all_first_spectrograms(
         #     transcripts,
@@ -213,7 +206,7 @@ class Dataset(ABC):
                 _process_transcript,
                 speaker_gender=speaker_gender,
                 conversations=conversations,
-                da_counts=da_counts,
+                da_precedence=da_precedence,
             ),
             n_jobs=self.n_jobs,
             argument_type="args",
