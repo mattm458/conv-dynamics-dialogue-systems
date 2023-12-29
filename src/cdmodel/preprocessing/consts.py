@@ -1,4 +1,6 @@
-FEATURES = [
+from typing import Final
+
+FEATURES: Final[list[str]] = [
     "duration",
     "duration_vcd",
     "pitch_mean",
@@ -19,7 +21,9 @@ FEATURES = [
     "rate_vcd",
 ]
 
-NORM_BY_CONV_SPEAKER_POSTFIX = "_norm_by_conv_speaker"
-FEATURES_NORM_BY_CONV_SPEAKER = [
+NORM_BY_CONV_SPEAKER_POSTFIX: Final[str] = "_norm_by_conv_speaker"
+FEATURES_NORM_BY_CONV_SPEAKER: Final[list[str]] = [
     f"{x}_{NORM_BY_CONV_SPEAKER_POSTFIX}" for x in FEATURES
 ]
+
+MANIFEST_VERSION: Final[int] = 1

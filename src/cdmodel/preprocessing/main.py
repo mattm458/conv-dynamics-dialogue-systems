@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from os import path
 from typing import Final, Optional
 
@@ -9,17 +10,21 @@ from pandas import DataFrame
 from torchtext.data import get_tokenizer
 from tqdm import tqdm
 
+from cdmodel.preprocessing.consts import (
+    FEATURES,
+    FEATURES_NORM_BY_CONV_SPEAKER,
+    MANIFEST_VERSION,
+)
 from cdmodel.preprocessing.datasets import Dataset
 from cdmodel.preprocessing.normalize import norm_by_conv_speaker
-from datetime import datetime
-
-from cdmodel.preprocessing.consts import FEATURES, FEATURES_NORM_BY_CONV_SPEAKER
-
-__MANIFEST_VERSION: int = 1
 
 
 class DatasetVersionError(Exception):
-    def __init__(self, dataset_version: int, supported_version: int = __MANIFEST_VERSION):
+    def __init__(
+        self,
+        dataset_version: int,
+        supported_version: int = MANIFEST_VERSION,
+    ):
         """
         An exception indicating a mismatch between the expected and actual dataset version
 
@@ -233,6 +238,8 @@ def preprocess(
     if out_dir is None:
         out_dir = f"{dataset_name} {datetime.now()}"
 
+    print(f"Saving to {out_dir}")
+
     # Try creating the directory.
     # If it already exists, we assume we're resuming an interrupted preprocessing session.
     try:
@@ -244,11 +251,11 @@ def preprocess(
     if path.exists(manifest_path):
         with open(manifest_path, "r") as infile:
             version = int(infile.readline())
-            if version != __MANIFEST_VERSION:
+            if version != MANIFEST_VERSION:
                 raise DatasetVersionError(dataset_version=version)
     else:
         with open(manifest_path, "w") as outfile:
-            outfile.write(str(__MANIFEST_VERSION))
+            outfile.write(str(MANIFEST_VERSION))
 
     # Step 1: Basic feature extraction and normalization
     data = __extract_features(dataset=dataset, out_dir=out_dir)
