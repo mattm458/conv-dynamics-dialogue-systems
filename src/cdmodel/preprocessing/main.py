@@ -15,6 +15,7 @@ from datetime import datetime
 
 from cdmodel.preprocessing.consts import FEATURES, FEATURES_NORM_BY_CONV_SPEAKER
 
+
 def _segment_export(data: DataFrame, out_dir: str) -> None:
     segment_path: Final[str] = path.join(out_dir, "segments")
 
@@ -90,9 +91,38 @@ def _extract_features(dataset: Dataset, out_dir: str) -> DataFrame:
 def preprocess(
     dataset_name: str,
     dataset_dir: str,
-    out_dir: Optional[str],
-    n_jobs: Optional[int],
+    out_dir: Optional[str] = None,
+    n_jobs: Optional[int] = None,
 ) -> None:
+    """
+    Preprocess a dataset and outp
+
+    Parameters
+    ----------
+    dataset_name : str
+        The name of the dataset to preprocess. Currently, only `switchboard` is supported.
+    dataset_dir : str
+        Path to the dataset's root directory.
+    out_dir : str, optional
+        Path to a directory where the results of preprocessing will be saved incrementally.
+        If `None`, preprocessing output will be saved in `preprocessed/{dataset} {datetime}/`.
+
+        If a preprocessing job was interrupted, and `out_dir` is set to the directory where the interrupted
+        job was saving output, then preprocessing will resume from where it left off.
+
+        Defaults to `None`.
+    n_jobs : int, optional
+        When executing parallelized operations, how many jobs to run at once. If `None`,
+        jobs will run in series.
+
+        Defaults to `None`.
+
+    Raises
+    ------
+    NotImplementedError
+        Raised if an unsupported dataset is given as `dataset_name`.
+    """
+
     # Determine if we support the dataset for preprocessing. If so, instantiate the
     # corresponding preprocessing object
     dataset: Optional[Dataset] = None
