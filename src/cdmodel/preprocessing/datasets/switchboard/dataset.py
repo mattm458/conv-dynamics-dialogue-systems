@@ -16,7 +16,7 @@ from cdmodel.preprocessing.datasets.dataset import (
 )
 from cdmodel.preprocessing.datasets.switchboard.da import (
     expand_terminals_da,
-    get_dialogue_acts,
+    load_dialogue_acts,
     get_terminals,
 )
 from cdmodel.preprocessing.datasets.switchboard.transcript_processing import (
@@ -63,9 +63,10 @@ class SwitchboardDataset(Dataset):
         da_counter: Counter[str] = Counter()
 
         for id, segments in tqdm(transcripts.items(), desc="Processing dialogue acts"):
+            # TODO: This is all messed up now D:
             try:
-                da_a = get_dialogue_acts(id, "A", self.dataset_dir)
-                da_b = get_dialogue_acts(id, "B", self.dataset_dir)
+                da_a = load_dialogue_acts(id, "A", self.dataset_dir)
+                da_b = load_dialogue_acts(id, "B", self.dataset_dir)
 
                 terminals_a = get_terminals(id, "A", self.dataset_dir)
                 terminals_b = get_terminals(id, "B", self.dataset_dir)
