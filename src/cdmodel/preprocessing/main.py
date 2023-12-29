@@ -15,6 +15,24 @@ from datetime import datetime
 
 from cdmodel.preprocessing.consts import FEATURES, FEATURES_NORM_BY_CONV_SPEAKER
 
+__MANIFEST_VERSION: int = 1
+
+
+class DatasetVersionError(Exception):
+    def __init__(self, dataset_version: int, supported_version: int = __MANIFEST_VERSION):
+        """
+        An exception indicating a mismatch between the expected and actual dataset version
+
+        Parameters
+        ----------
+        dataset_version : int
+            The given version of the dataset.
+        supported_version : int, optional
+            The version supported by the module. The latest version by default.
+        """
+        message = f"Preprocessed dataset version {dataset_version} is too old. Version supported: {supported_version}"
+        super().__init__(message)
+
 
 def _segment_export(df: DataFrame, out_dir: str) -> None:
     """
@@ -195,6 +213,9 @@ def preprocess(
     ------
     NotImplementedError
         Raised if an unsupported dataset is given as `dataset_name`.
+
+    DatasetVersionError
+        Raised if preprocessing is resumed on a dataset too old for current preprocessing code.
     """
 
     # Determine if we support the dataset for preprocessing. If so, instantiate the
@@ -218,6 +239,16 @@ def preprocess(
         os.mkdir(out_dir)
     except FileExistsError:
         print(f"Output directory {out_dir} already exists, resuming...")
+
+    manifest_path = path.join(out_dir, "MANIFEST")
+    if path.exists(manifest_path):
+        with open(manifest_path, "r") as infile:
+            version = int(infile.readline())
+            if version != __MANIFEST_VERSION:
+                raise DatasetVersionError(dataset_version=version)
+    else:
+        with open(manifest_path, "w") as outfile:
+            outfile.write(str(__MANIFEST_VERSION))
 
     # Step 1: Basic feature extraction and normalization
     data = __extract_features(dataset=dataset, out_dir=out_dir)
