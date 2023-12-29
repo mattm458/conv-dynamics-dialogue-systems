@@ -110,7 +110,7 @@ def preprocess(ctx: Context, dataset: str, dataset_dir: str, out_dir: Optional[s
     preprocess(
         dataset_name=dataset,
         dataset_dir=path.normpath(dataset_dir),
-        out_dir=None,
+        out_dir=out_dir,
         n_jobs=8,
     )
     pass
