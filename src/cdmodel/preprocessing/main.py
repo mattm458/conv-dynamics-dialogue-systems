@@ -189,6 +189,7 @@ def preprocess(
     dataset_dir: str,
     out_dir: Optional[str] = None,
     n_jobs: Optional[int] = None,
+    debug: bool = False,
 ) -> None:
     """
     Preprocess a dataset for use in a conversational dynamics model.
@@ -213,6 +214,9 @@ def preprocess(
         jobs will run in series.
 
         Defaults to `None`.
+    debug : bool
+        Whether to run preprocessing in debug mode. Debug mode involves preprocessing a small subset of
+        the dataset and occasionally outputting more information about the process. Defaults to `False`.
 
     Raises
     ------
@@ -229,7 +233,7 @@ def preprocess(
     if dataset_name == "switchboard":
         from cdmodel.preprocessing.datasets import SwitchboardDataset
 
-        dataset = SwitchboardDataset(dataset_dir=dataset_dir)
+        dataset = SwitchboardDataset(dataset_dir=dataset_dir, debug=debug)
     else:
         raise NotImplementedError(f"Dataset {dataset_name} is not implemented")
 

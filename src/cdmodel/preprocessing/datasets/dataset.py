@@ -175,12 +175,14 @@ class Dataset(ABC):
         # f_max=Optional[float],
         segmentation: str = "turn",
         n_jobs: int = 8,
+        debug: bool = False,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
         # self.sr = sr
         self.segmentation: Segmentation = Segmentation(segmentation)
         self.n_jobs = n_jobs
+        self.debug = debug
         # self.mel_spectrogram = TacotronMelSpectrogram(sample_rate=sr, f_max=f_max)
 
     def extract_features(self) -> list[dict]:

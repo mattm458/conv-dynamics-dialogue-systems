@@ -56,15 +56,6 @@ def _get_conversation_speaker_ids(dataset_dir: str) -> dict[tuple[int, str], int
 
 
 class SwitchboardDataset(Dataset):
-    def __init__(self, dataset_dir: str, segmentation: str = "turn", n_jobs: int = 8):
-        super().__init__(
-            dataset_dir=dataset_dir,
-            # sr=8000,
-            # f_max=None,
-            segmentation=segmentation,
-            n_jobs=n_jobs,
-        )
-
     def apply_dialogue_acts(
         self, transcripts: dict[int, list[Segment]]
     ) -> tuple[dict[int, list[Segment]], list[tuple[str, int]]]:
@@ -244,11 +235,11 @@ class SwitchboardDataset(Dataset):
     def filter_conversations(
         self, conversations: dict[int, list[ConversationFile]]
     ) -> dict[int, list[ConversationFile]]:
-        # # DEBUG - REMOVE
-        # out = {}
-        # out[4345] = conversations[4345]
-        # out[3029] = conversations[4785]
-        # return out
+        # If in debug mode, output a small subset of conversations to make
+        # preprocessing go faster.
+        if self.debug:
+            return {4345: conversations[4345], 3029: conversations[4785]}
+
         return conversations
 
     def get_segmented_transcripts(

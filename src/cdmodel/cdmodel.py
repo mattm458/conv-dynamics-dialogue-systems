@@ -103,8 +103,11 @@ def stats(
 @click.option("--dataset", required=True, type=str)
 @click.option("--dataset-dir", required=True, type=str)
 @click.option("--out-dir", required=False, type=str)
+@click.option("--debug", is_flag=True, default=False)
 @click.pass_context
-def preprocess(ctx: Context, dataset: str, dataset_dir: str, out_dir: Optional[str]):
+def preprocess(
+    ctx: Context, dataset: str, dataset_dir: str, out_dir: Optional[str], debug: bool
+):
     from cdmodel.preprocessing import preprocess
 
     preprocess(
@@ -112,6 +115,7 @@ def preprocess(ctx: Context, dataset: str, dataset_dir: str, out_dir: Optional[s
         dataset_dir=path.normpath(dataset_dir),
         out_dir=out_dir,
         n_jobs=8,
+        debug=debug,
     )
     pass
 
