@@ -115,7 +115,13 @@ def __normalize(df: DataFrame, out_dir: str) -> DataFrame:
         return pd.read_csv(data_norm_csv_path)
 
     # Perform normalization and save the results.
-    data_norm = norm_by_conv_speaker(df, features=FEATURES)
+    data_norm = pd.concat(
+        [
+            df,
+            norm_by_conv_speaker(df, features=FEATURES),
+        ],
+        axis=1,
+    )
     data_norm.to_csv(data_norm_csv_path, index=False)
 
     return data_norm
