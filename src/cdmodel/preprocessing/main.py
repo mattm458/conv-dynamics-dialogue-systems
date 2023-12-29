@@ -95,7 +95,7 @@ def preprocess(
     n_jobs: Optional[int] = None,
 ) -> None:
     """
-    Preprocess a dataset and outp
+    Preprocess a dataset for use in a conversational dynamics model. 
 
     Parameters
     ----------
