@@ -160,7 +160,8 @@ def pair_terminals_das(
     Raises
     ------
     Exception
-        _description_
+        Raises if more than one dialogue act is associated with a terminal.
+        This should never happen.
     """
     paired_terminals_das: dict[
         str, tuple[SwitchboardTerminal, SwitchboardDialogueAct]
