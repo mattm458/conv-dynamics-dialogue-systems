@@ -4,6 +4,17 @@ import pandas as pd
 from pandas import DataFrame
 
 
+def pair_conversations_speakers(
+    call_metadata_df: DataFrame,
+) -> dict[tuple[int, str], int]:
+    speaker_ids: dict[tuple[int, str], int] = {}
+
+    for _, row in call_metadata_df.iterrows():
+        speaker_ids[(row.conversation_no, row.conversation_side)] = row.caller_no
+
+    return speaker_ids
+
+
 def load_caller_metadata(switchboard_dir: str) -> DataFrame:
     """
     Load the metadata associated with all Switchboard callers.

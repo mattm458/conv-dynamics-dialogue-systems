@@ -22,24 +22,31 @@ from cdmodel.preprocessing.datasets.switchboard.dialogue_acts import (
 from cdmodel.preprocessing.datasets.switchboard.switchboard_utils import (
     load_call_metadata,
     load_caller_metadata,
+    pair_conversations_speakers,
 )
 from cdmodel.preprocessing.datasets.switchboard.transcript_processing import (
     process_word,
 )
 
 
-def _get_conversation_speaker_ids(dataset_dir: str) -> dict[tuple[int, str], int]:
-    speaker_ids: dict[tuple[int, str], int] = {}
-
-    df_calls = load_call_metadata(dataset_dir)
-
-    for _, row in df_calls.iterrows():
-        speaker_ids[(row.conversation_no, row.conversation_side)] = row.caller_no
-
-    return speaker_ids
-
-
 class SwitchboardDataset(Dataset):
+    def __init__(
+        self,
+        dataset_dir: str,
+        segmentation: str = "turn",
+        n_jobs: int = 8,
+        debug: bool = False,
+    ):
+        super().__init__(
+            dataset_dir=dataset_dir,
+            segmentation=segmentation,
+            n_jobs=n_jobs,
+            debug=debug,
+        )
+
+        self.call_metadata = load_call_metadata(self.dataset_dir)
+        self.caller_metadata = load_caller_metadata(self.dataset_dir)
+
     def apply_dialogue_acts(
         self, conversations: dict[int, list[Segment]]
     ) -> tuple[dict[int, list[Segment]], Counter[str]]:
@@ -160,10 +167,11 @@ class SwitchboardDataset(Dataset):
         for _, row in df_callers.iterrows():
             speaker_gender[row.caller_no] = row.sex
 
+
         return speaker_gender
 
     def get_all_conversations(self) -> dict[int, list[ConversationFile]]:
-        speaker_ids = _get_conversation_speaker_ids(self.dataset_dir)
+        speaker_ids = pair_conversations_speakers(self.call_metadata)
 
         # A set containing all conversation IDs
         conversation_ids: set[int] = set()
