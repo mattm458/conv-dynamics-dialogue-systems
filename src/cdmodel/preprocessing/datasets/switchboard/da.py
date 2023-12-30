@@ -23,7 +23,7 @@ def load_dialogue_acts(
     switchboard_dir: str,
 ) -> list[SwitchboardDialogueAct]:
     """
-    Load all Switchboard dialogue acts in a conversation from Switchboard-NXT annotations.
+    Load all Switchboard dialogue acts in a conversation from NXT-Switchboard annotations.
 
     Parameters
     ----------
