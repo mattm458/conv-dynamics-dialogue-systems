@@ -14,40 +14,24 @@ from cdmodel.preprocessing.datasets.dataset import (
     Segment,
     Segmentation,
 )
-from cdmodel.preprocessing.datasets.switchboard.da import (
+from cdmodel.preprocessing.datasets.switchboard.dialogue_acts import (
     load_dialogue_acts,
     load_terminals,
     pair_terminals_das,
+)
+from cdmodel.preprocessing.datasets.switchboard.switchboard_utils import (
+    load_call_metadata,
+    load_caller_metadata,
 )
 from cdmodel.preprocessing.datasets.switchboard.transcript_processing import (
     process_word,
 )
 
 
-def _get_call_con(dataset_dir: str) -> DataFrame:
-    df_calls = pd.read_csv(
-        path.join(dataset_dir, "tables", "call_con_tab.csv"), header=None
-    )
-    df_calls.columns = pd.Index(
-        [
-            "conversation_no",
-            "conversation_side",
-            "caller_no",
-            "phone_number",
-            "length",
-            "ivi_no",
-            "remarks",
-            "active",
-        ]
-    )
-
-    return df_calls
-
-
 def _get_conversation_speaker_ids(dataset_dir: str) -> dict[tuple[int, str], int]:
     speaker_ids: dict[tuple[int, str], int] = {}
 
-    df_calls = _get_call_con(dataset_dir=dataset_dir)
+    df_calls = load_call_metadata(dataset_dir)
 
     for _, row in df_calls.iterrows():
         speaker_ids[(row.conversation_no, row.conversation_side)] = row.caller_no
@@ -127,7 +111,7 @@ class SwitchboardDataset(Dataset):
     def get_conversations_with_min_speaker_repeat(self, min_repeat: int) -> list[int]:
         conversation_ids: list[int] = []
 
-        df_calls = _get_call_con(self.dataset_dir)
+        df_calls = load_call_metadata(self.dataset_dir)
         call_counts = df_calls.caller_no.value_counts()
         eligible_callers = set(call_counts.index)
 
@@ -170,28 +154,7 @@ class SwitchboardDataset(Dataset):
     def get_speaker_gender(self) -> dict[int, str]:
         speaker_gender: dict[int, str] = {}
 
-        df_callers = pd.read_csv(
-            path.join(self.dataset_dir, "tables", "caller_tab.csv"), header=None
-        )
-        df_callers.columns = pd.Index(
-            [
-                "caller_no",
-                "pin",
-                "target",
-                "sex",
-                "birth_year",
-                "dialect_area",
-                "education",
-                "ti",
-                "payment_type",
-                "amt_pd",
-                "con",
-                "remarks",
-                "calls_deleted",
-                "speaker_partition",
-            ]
-        )
-
+        df_callers = load_caller_metadata(self.dataset_dir)
         df_callers.sex = ["m" if x == "MALE" else "f" for x in df_callers.sex]
 
         for _, row in df_callers.iterrows():
