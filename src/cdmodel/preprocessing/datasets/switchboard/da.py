@@ -79,7 +79,7 @@ def load_dialogue_acts(
     return dialogue_acts
 
 
-def get_terminals(
+def load_terminals(
     id: int,
     speaker: str,
     switchboard_dir: str,
@@ -138,7 +138,7 @@ def get_terminals(
     return terminals
 
 
-def pair_terminals_das(
+def pair_das_terminals(
     das: list[SwitchboardDialogueAct], terminals: dict[str, SwitchboardTerminal]
 ) -> dict[str, tuple[SwitchboardTerminal, SwitchboardDialogueAct]]:
     """
