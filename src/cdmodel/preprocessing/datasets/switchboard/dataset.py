@@ -118,8 +118,7 @@ class SwitchboardDataset(Dataset):
     def get_conversations_with_min_speaker_repeat(self, min_repeat: int) -> list[int]:
         conversation_ids: list[int] = []
 
-        df_calls = load_call_metadata(self.dataset_dir)
-        call_counts = df_calls.caller_no.value_counts()
+        call_counts = self.call_metadata.caller_no.value_counts()
         eligible_callers = set(call_counts.index)
 
         prev_eligible_caller_size = len(eligible_callers)
@@ -130,13 +129,13 @@ class SwitchboardDataset(Dataset):
         # This iteration solves that problem and results in a dataset where we're guaranteed
         # there are at least 3 instances of each caller.
         while True:
-            df_calls_a = df_calls[
-                (df_calls.conversation_side == "A")
-                & (df_calls.caller_no.isin(eligible_callers))
+            df_calls_a = self.call_metadata[
+                (self.call_metadata.conversation_side == "A")
+                & (self.call_metadata.caller_no.isin(eligible_callers))
             ].set_index("conversation_no")
-            df_calls_b = df_calls[
-                (df_calls.conversation_side == "B")
-                & (df_calls.caller_no.isin(eligible_callers))
+            df_calls_b = self.call_metadata[
+                (self.call_metadata.conversation_side == "B")
+                & (self.call_metadata.caller_no.isin(eligible_callers))
             ].set_index("conversation_no")
 
             df_call_pairs = df_calls_a.join(
@@ -155,18 +154,20 @@ class SwitchboardDataset(Dataset):
             prev_eligible_caller_size = len(eligible_callers)
 
         return list(
-            set(df_calls[df_calls.caller_no.isin(eligible_callers)].conversation_no)
+            set(
+                self.call_metadata[
+                    self.call_metadata.caller_no.isin(eligible_callers)
+                ].conversation_no
+            )
         )
 
     def get_speaker_gender(self) -> dict[int, str]:
         speaker_gender: dict[int, str] = {}
 
-        df_callers = load_caller_metadata(self.dataset_dir)
-        df_callers.sex = ["m" if x == "MALE" else "f" for x in df_callers.sex]
+        self.caller_metadata.sex = ["m" if x == "MALE" else "f" for x in self.caller_metadata.sex]
 
-        for _, row in df_callers.iterrows():
+        for _, row in self.caller_metadata.iterrows():
             speaker_gender[row.caller_no] = row.sex
-
 
         return speaker_gender
 
