@@ -17,13 +17,8 @@ class SwitchboardDialogueAct(NamedTuple):
     terminal_ids: list[str]
 
 
-class SwitchboardDialogueActTerminal(NamedTuple):
-    terminal: SwitchboardTerminal
-    dialogue_acts: list[SwitchboardDialogueAct]
-
-
 def load_dialogue_acts(
-    id: str,
+    id: int,
     speaker: str,
     switchboard_dir: str,
 ) -> list[SwitchboardDialogueAct]:
@@ -90,7 +85,7 @@ def get_terminals(
     switchboard_dir: str,
 ) -> dict[str, SwitchboardTerminal]:
     """
-    Load all Switchboard dialogue acts in a conversation from Switchboard-NXT annotations.
+    Load all Switchboard terminals in a conversation from NXT-Switchboard annotations.
 
     Parameters
     ----------
@@ -119,7 +114,7 @@ def get_terminals(
             f"NXT-Switchboard XML annotations not available at {base_dir}!"
         )
 
-    terminals = {}
+    terminals: dict[str, SwitchboardTerminal] = {}
 
     soup = BeautifulSoup(
         open(path.join(base_dir, "terminals", f"{id_str}.terminals.xml")), "xml"
@@ -143,24 +138,49 @@ def get_terminals(
     return terminals
 
 
-def expand_terminals_da(
+def pair_terminals_das(
     das: list[SwitchboardDialogueAct], terminals: dict[str, SwitchboardTerminal]
-) -> dict[str, SwitchboardDialogueActTerminal]:
-    expanded_terminals: dict[str, SwitchboardDialogueActTerminal] = dict(
-        [
-            (
-                terminal_id,
-                SwitchboardDialogueActTerminal(terminal=terminal, dialogue_acts=[]),
-            )
-            for (terminal_id, terminal) in terminals.items()
-        ]
-    )
+) -> dict[str, tuple[SwitchboardTerminal, SwitchboardDialogueAct]]:
+    """
+    Pair terminals with their associated dialogue act.
+
+    Parameters
+    ----------
+    das : list[SwitchboardDialogueAct]
+        A list of SwitchboardDialogueAct objects from a conversation.
+    terminals : dict[str, SwitchboardTerminal]
+        A dictionary mapping terminal IDs to a SwitchboardTerminal object.
+
+    Returns
+    -------
+    dict[str, tuple[SwitchboardTerminal, SwitchboardDialogueAct]]
+        A dictionary mapping terminal ID to a SwitchboardTerminal and its
+        associated SwitchboardDialogueAct.
+
+    Raises
+    ------
+    Exception
+        _description_
+    """
+    paired_terminals_das: dict[
+        str, tuple[SwitchboardTerminal, SwitchboardDialogueAct]
+    ] = {}
 
     for da in das:
         for terminal_id in da.terminal_ids:
-            if terminal_id not in expanded_terminals:
+            # A terminal may not be in the dictionary of terminals if it was omitted for not
+            # having a start/end time
+            if terminal_id not in terminals:
                 continue
 
-            expanded_terminals[terminal_id].dialogue_acts.append(da)
+            # This shouldn't ever happen. If it does, it means multiple dialogue acts were
+            # associated with a turn - investigate if you see this
+            if terminal_id in paired_terminals_das:
+                raise Exception(
+                    f"Terminal {terminal_id} has already been assigned to a dialogue act!"
+                )
 
-    return expanded_terminals
+            # Pair the dialogue act and terminal
+            paired_terminals_das[terminal_id] = (terminals[terminal_id], da)
+
+    return paired_terminals_das
