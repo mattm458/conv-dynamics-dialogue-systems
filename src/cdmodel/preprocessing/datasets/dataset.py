@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections import defaultdict
+from collections import Counter
 from enum import Enum
 from functools import partial
 from typing import NamedTuple, Optional
@@ -12,7 +12,8 @@ from pqdm.processes import pqdm
 
 # from speech_utils.audio.transforms.mel_spectrogram import TacotronMelSpectrogram
 from speech_utils.preprocessing.feature_extraction import extract_features
-from cdmodel.preprocessing.datasets.da import da_vote, da_consolidate_category
+
+from cdmodel.preprocessing.datasets.da import da_consolidate_category, da_vote
 
 
 class ConversationFile(NamedTuple):
@@ -186,8 +187,8 @@ class Dataset(ABC):
         transcripts = self.get_segmented_transcripts(conversations=conversations)
 
         # If dialogue acts are stored separately, extract them here
-        transcripts, da_precedence = self.apply_dialogue_acts(transcripts=transcripts)
-        da_precedence = [da for (da, _) in da_precedence]
+        transcripts, da_counts = self.apply_dialogue_acts(conversations=transcripts)
+        da_precedence = [da for (da, _) in da_counts.most_common()]
 
         # first_spectrograms = _get_all_first_spectrograms(
         #     transcripts,
@@ -235,8 +236,25 @@ class Dataset(ABC):
 
     @abstractmethod
     def apply_dialogue_acts(
-        self, transcripts: dict[int, list[Segment]]
-    ) -> tuple[dict[int, list[Segment]], list[tuple[str, int]]]:
+        self, conversations: dict[int, list[Segment]]
+    ) -> tuple[dict[int, list[Segment]], Counter[str]]:
+        """
+        Apply dialogue act annotations to extracted conversation data, if available.
+
+        Parameters
+        ----------
+        conversations : dict[int, list[Segment]]
+            A dictionary mapping conversation ID to a list of Segment objects
+
+        Returns
+        -------
+        tuple[dict[int, list[Segment]], Counter[str]]
+            A tuple containing a new dictionary mapping conversation ID to a list of Segment objects.
+            Segments will be annotated with dialogue acts where available.
+
+            Additionally, the tuple contains a Counter object containing the number of times each
+            dialogue act appears in the conversations.
+        """
         pass
 
     def get_speaker_gender(self) -> Optional[dict[int, str]]:

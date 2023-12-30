@@ -138,18 +138,18 @@ def load_terminals(
     return terminals
 
 
-def pair_das_terminals(
-    das: list[SwitchboardDialogueAct], terminals: dict[str, SwitchboardTerminal]
+def pair_terminals_das(
+    terminals: dict[str, SwitchboardTerminal], das: list[SwitchboardDialogueAct]
 ) -> dict[str, tuple[SwitchboardTerminal, SwitchboardDialogueAct]]:
     """
     Pair terminals with their associated dialogue act.
 
     Parameters
     ----------
-    das : list[SwitchboardDialogueAct]
-        A list of SwitchboardDialogueAct objects from a conversation.
     terminals : dict[str, SwitchboardTerminal]
         A dictionary mapping terminal IDs to a SwitchboardTerminal object.
+    das : list[SwitchboardDialogueAct]
+        A list of SwitchboardDialogueAct objects from a conversation.
 
     Returns
     -------

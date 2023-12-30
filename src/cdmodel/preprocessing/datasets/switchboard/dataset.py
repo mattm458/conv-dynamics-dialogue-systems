@@ -1,6 +1,6 @@
 import os
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from os import path
 from typing import Optional
 
@@ -15,9 +15,9 @@ from cdmodel.preprocessing.datasets.dataset import (
     Segmentation,
 )
 from cdmodel.preprocessing.datasets.switchboard.da import (
-    expand_terminals_da,
     load_dialogue_acts,
-    get_terminals,
+    load_terminals,
+    pair_terminals_das,
 )
 from cdmodel.preprocessing.datasets.switchboard.transcript_processing import (
     process_word,
@@ -57,44 +57,61 @@ def _get_conversation_speaker_ids(dataset_dir: str) -> dict[tuple[int, str], int
 
 class SwitchboardDataset(Dataset):
     def apply_dialogue_acts(
-        self, transcripts: dict[int, list[Segment]]
-    ) -> tuple[dict[int, list[Segment]], list[tuple[str, int]]]:
-        transcripts_out: dict[int, list[Segment]] = {}
+        self, conversations: dict[int, list[Segment]]
+    ) -> tuple[dict[int, list[Segment]], Counter[str]]:
+        # Dictionary for DA-annotated conversation segments
+        conversations_out: defaultdict[int, list[Segment]] = defaultdict(lambda: [])
+
+        # Counter for dialogue acts so we can see which are the most common
         da_counter: Counter[str] = Counter()
 
-        for id, segments in tqdm(transcripts.items(), desc="Processing dialogue acts"):
-            # TODO: This is all messed up now D:
+        for conversation_id, segments in tqdm(
+            conversations.items(), desc="Processing dialogue acts"
+        ):
+            # Load NXT-Switchboard dialogue acts and terminals
             try:
-                da_a = load_dialogue_acts(id, "A", self.dataset_dir)
-                da_b = load_dialogue_acts(id, "B", self.dataset_dir)
+                das_a = load_dialogue_acts(conversation_id, "A", self.dataset_dir)
+                das_b = load_dialogue_acts(conversation_id, "B", self.dataset_dir)
 
-                terminals_a = get_terminals(id, "A", self.dataset_dir)
-                terminals_b = get_terminals(id, "B", self.dataset_dir)
-            except Exception as e:
-                transcripts_out[id] = segments
+                terminals_a = load_terminals(conversation_id, "A", self.dataset_dir)
+                terminals_b = load_terminals(conversation_id, "B", self.dataset_dir)
+            except FileNotFoundError:
+                # If loading fails, add the conversation segments to the output without
+                # dialogue acts.
+                #
+                # Failure can occur if the conversation is not annotated by NXT-Switchboard,
+                # or if the user running the preprocessing script does not have the NXT-
+                # switchboard annotations.
+                conversations_out[conversation_id] = segments
                 continue
 
-            da_counter.update([x["nitetype"] for x in da_a])
-            da_counter.update([x["nitetype"] for x in da_b])
+            # Pair the terminals and dialogue acts
+            das_terminals_a = pair_terminals_das(terminals_a, das_a)
+            das_terminals_b = pair_terminals_das(terminals_b, das_b)
 
-            expand_terminals_da(da_a, terminals_a)
-            expand_terminals_da(da_b, terminals_b)
+            # Update the counter with dialogue acts from both sides of the conversation
+            da_counter.update(da.nitetype for (_, da) in das_terminals_a.values())
+            da_counter.update(da.nitetype for (_, da) in das_terminals_b.values())
 
-            segments_out: list[Segment] = []
             for segment in segments:
+                # Identify the side of the conversational segment and get the appropriate
+                # DA/terminal pairs
                 if segment.side == "A":
-                    side_terminals = terminals_a.values()
+                    conversation_side_das_terminals = das_terminals_a.values()
                 else:
-                    side_terminals = terminals_b.values()
+                    conversation_side_das_terminals = das_terminals_b.values()
 
+                # Construct a set of all dialogue acts contained in the segment
                 segment_da = set(
-                    x["nitetype"]
-                    for x in side_terminals
-                    if "nitetype" in x
-                    and not ((x["end"] < segment.start) or (x["start"] > segment.end))
+                    da.nitetype
+                    for (terminal, da) in conversation_side_das_terminals
+                    if not (
+                        terminal.end < segment.start or terminal.start > segment.end
+                    )
                 )
 
-                segments_out.append(
+                # Add the segment to the output conversation with new dialogue act annotations
+                conversations_out[conversation_id].append(
                     Segment(
                         transcript=segment.transcript,
                         side=segment.side,
@@ -105,9 +122,7 @@ class SwitchboardDataset(Dataset):
                     )
                 )
 
-            transcripts_out[id] = segments_out
-
-        return transcripts_out, da_counter.most_common()
+        return dict(conversations_out), da_counter
 
     def get_conversations_with_min_speaker_repeat(self, min_repeat: int) -> list[int]:
         conversation_ids: list[int] = []
