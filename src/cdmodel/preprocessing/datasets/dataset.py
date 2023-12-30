@@ -222,11 +222,10 @@ class Dataset(ABC):
     def get_all_conversations(self) -> dict[int, list[ConversationFile]]:
         pass
 
-    @abstractmethod
     def filter_conversations(
         self, conversations: dict[int, list[ConversationFile]]
     ) -> dict[int, list[ConversationFile]]:
-        pass
+        return conversations
 
     @abstractmethod
     def get_segmented_transcripts(
@@ -234,7 +233,6 @@ class Dataset(ABC):
     ) -> dict[int, list[Segment]]:
         pass
 
-    @abstractmethod
     def apply_dialogue_acts(
         self, conversations: dict[int, list[Segment]]
     ) -> tuple[dict[int, list[Segment]], Counter[str]]:
@@ -255,7 +253,17 @@ class Dataset(ABC):
             Additionally, the tuple contains a Counter object containing the number of times each
             dialogue act appears in the conversations.
         """
-        pass
+        return conversations, Counter()
 
-    def get_speaker_gender(self) -> Optional[dict[int, str]]:
-        return None
+    def get_speaker_gender(self) -> dict[int, str]:
+        """
+        Return a dictionary mapping speaker ID to the speaker's gender, for speakers where
+        this information is available. If gender information is not available for a speaker,
+        their ID and gender will not be in the returned dictionary.
+
+        Returns
+        -------
+        Optional[dict[int, str]]
+            A dictionary mapping speaker ID to gender.
+        """
+        return {}
