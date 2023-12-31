@@ -16,7 +16,7 @@ from speech_utils.preprocessing.feature_extraction import extract_features
 from cdmodel.preprocessing.datasets.da import da_consolidate_category, da_vote
 
 
-class ConversationFile(NamedTuple):
+class ConversationStub(NamedTuple):
     path: str
     side: str
     speaker_id: int
@@ -40,12 +40,12 @@ class Segmentation(Enum):
 # This function performs feature extraction on all segments within a conversation.
 def _process_transcript(
     conversation_id: int,
-    transcript: list[Segment],
-    conversations: dict[int, list[ConversationFile]],
+    conversation_segments: list[Segment],
+    conversation_stubs: dict[int, list[ConversationStub]],
     speaker_gender: Optional[dict] = None,
     da_precedence: Optional[list[str]] = None,
 ) -> list[dict]:
-    conversation_files = conversations[conversation_id]
+    conversation_files = conversation_stubs[conversation_id]
 
     # Open the conversation files
     conversation_audio: dict[str, parselmouth.Sound] = {}
@@ -60,9 +60,9 @@ def _process_transcript(
     # Sets containing the conversation sides and speaker IDs for
     # determining partner at each segment
     sides: set[str] = set(conversation_audio.keys())
-    speaker_ids: set[int] = set(x.speaker_id for x in transcript)
+    speaker_ids: set[int] = set(x.speaker_id for x in conversation_segments)
 
-    for segment in transcript:
+    for segment in conversation_segments:
         features = segment._asdict()
         extracted_features = extract_features(
             transcript=segment.transcript,
@@ -164,49 +164,52 @@ class Dataset(ABC):
     def __init__(
         self,
         dataset_dir: str,
-        # sr: int,
-        # f_max=Optional[float],
         segmentation: str = "turn",
         n_jobs: int = 8,
         debug: bool = False,
     ):
         super().__init__()
         self.dataset_dir = dataset_dir
-        # self.sr = sr
         self.segmentation: Segmentation = Segmentation(segmentation)
         self.n_jobs = n_jobs
         self.debug = debug
-        # self.mel_spectrogram = TacotronMelSpectrogram(sample_rate=sr, f_max=f_max)
 
     def extract_features(self) -> list[dict]:
-        # Retrieve and filter all the conversations we want to use
-        conversations = self.get_all_conversations()
-        conversations = self.filter_conversations(conversations=conversations)
+        """
+        Perform feature extraction on the dataset.
 
-        # Get the transcripts according to the segmentation method we initialized with the dataset class
-        transcripts = self.get_segmented_transcripts(conversations=conversations)
+        Returns
+        -------
+        list[dict]
+            A list of dictionaries. Each dictionary represents a segment of the
+            conversation, and contains features extracted from that segment.
+        """
+        # Get conversation stub data
+        conversation_stubs = self.load_conversation_stubs()
+
+        # Filter any unwanted conversation stubs
+        conversation_stubs = self.filter_conversation_stubs(
+            conversation_stubs=conversation_stubs
+        )
+
+        # Load and segment transcripts from the conversation stubs
+        conversation_segments = self.load_conversation_segments(
+            conversation_stubs=conversation_stubs
+        )
 
         # If dialogue acts are stored separately, extract them here
-        transcripts, da_counts = self.apply_dialogue_acts(conversations=transcripts)
+        conversation_segments, da_counts = self.apply_dialogue_acts(
+            conversation_segments=conversation_segments
+        )
         da_precedence = [da for (da, _) in da_counts.most_common()]
-
-        # first_spectrograms = _get_all_first_spectrograms(
-        #     transcripts,
-        #     conversations,
-        #     expected_sr=self.sr,
-        #     mel_spectrogram=self.mel_spectrogram,
-        # )
-
-        # If speaker gender is available, get it for use in preprocessing
-        speaker_gender = self.get_speaker_gender()
 
         # Preprocess using pqdm to run in parallel
         processed = pqdm(
-            transcripts.items(),
+            conversation_segments.items(),
             partial(
                 _process_transcript,
-                speaker_gender=speaker_gender,
-                conversations=conversations,
+                speaker_gender=self.get_speaker_gender(),
+                conversation_stubs=conversation_stubs,
                 da_precedence=da_precedence,
             ),
             n_jobs=self.n_jobs,
@@ -215,26 +218,25 @@ class Dataset(ABC):
         )
 
         # Flatten the returned list of extracted features
-        processed = [item for sublist in processed for item in sublist]
-        return processed  # , first_spectrograms
+        return [item for sublist in processed for item in sublist]
 
     @abstractmethod
-    def get_all_conversations(self) -> dict[int, list[ConversationFile]]:
+    def load_conversation_stubs(self) -> dict[int, list[ConversationStub]]:
         pass
 
-    def filter_conversations(
-        self, conversations: dict[int, list[ConversationFile]]
-    ) -> dict[int, list[ConversationFile]]:
-        return conversations
+    def filter_conversation_stubs(
+        self, conversation_stubs: dict[int, list[ConversationStub]]
+    ) -> dict[int, list[ConversationStub]]:
+        return conversation_stubs
 
     @abstractmethod
-    def get_segmented_transcripts(
-        self, conversations: dict[int, list[ConversationFile]]
+    def load_conversation_segments(
+        self, conversation_stubs: dict[int, list[ConversationStub]]
     ) -> dict[int, list[Segment]]:
         pass
 
     def apply_dialogue_acts(
-        self, conversations: dict[int, list[Segment]]
+        self, conversation_segments: dict[int, list[Segment]]
     ) -> tuple[dict[int, list[Segment]], Counter[str]]:
         """
         Apply dialogue act annotations to extracted conversation data, if available.
@@ -253,7 +255,7 @@ class Dataset(ABC):
             Additionally, the tuple contains a Counter object containing the number of times each
             dialogue act appears in the conversations.
         """
-        return conversations, Counter()
+        return conversation_segments, Counter()
 
     def get_speaker_gender(self) -> dict[int, str]:
         """

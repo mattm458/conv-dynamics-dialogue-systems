@@ -9,7 +9,7 @@ from pandas import DataFrame
 from tqdm import tqdm
 
 from cdmodel.preprocessing.datasets.dataset import (
-    ConversationFile,
+    ConversationStub,
     Dataset,
     Segment,
     Segmentation,
@@ -48,7 +48,7 @@ class SwitchboardDataset(Dataset):
         self.caller_metadata = load_caller_metadata(self.dataset_dir)
 
     def apply_dialogue_acts(
-        self, conversations: dict[int, list[Segment]]
+        self, conversation_segments: dict[int, list[Segment]]
     ) -> tuple[dict[int, list[Segment]], Counter[str]]:
         # Dictionary for DA-annotated conversation segments
         conversations_out: defaultdict[int, list[Segment]] = defaultdict(lambda: [])
@@ -57,7 +57,7 @@ class SwitchboardDataset(Dataset):
         da_counter: Counter[str] = Counter()
 
         for conversation_id, segments in tqdm(
-            conversations.items(), desc="Processing dialogue acts"
+            conversation_segments.items(), desc="Processing dialogue acts"
         ):
             # Load NXT-Switchboard dialogue acts and terminals
             try:
@@ -164,21 +164,23 @@ class SwitchboardDataset(Dataset):
     def get_speaker_gender(self) -> dict[int, str]:
         speaker_gender: dict[int, str] = {}
 
-        self.caller_metadata.sex = ["m" if x == "MALE" else "f" for x in self.caller_metadata.sex]
+        self.caller_metadata.sex = [
+            "m" if x == "MALE" else "f" for x in self.caller_metadata.sex
+        ]
 
         for _, row in self.caller_metadata.iterrows():
             speaker_gender[row.caller_no] = row.sex
 
         return speaker_gender
 
-    def get_all_conversations(self) -> dict[int, list[ConversationFile]]:
+    def load_conversation_stubs(self) -> dict[int, list[ConversationStub]]:
         speaker_ids = pair_conversations_speakers(self.call_metadata)
 
         # A set containing all conversation IDs
         conversation_ids: set[int] = set()
 
         # A dictionary mapping conversation IDs and speaker ID to ts corresponding speaker file
-        conversation_speaker: dict[tuple[int, str], ConversationFile] = {}
+        conversation_speaker: dict[tuple[int, str], ConversationStub] = {}
 
         # First, we collect all the conversation files
         dirs_walk = os.walk(path.join(self.dataset_dir, "audio"))
@@ -200,7 +202,7 @@ class SwitchboardDataset(Dataset):
 
                 # At this point, we successfully found a Switchboard audio file.
                 # Put together the data for the output dictionary and add it:
-                conversation_file = ConversationFile(
+                conversation_file = ConversationStub(
                     path=path.join(root, filename),
                     side=side,
                     speaker_id=speaker_ids[(id, side)],
@@ -211,7 +213,7 @@ class SwitchboardDataset(Dataset):
                 conversation_speaker[(id, side)] = conversation_file
 
         # Next, we merge the speaker-specific conversation files into a single dictionary
-        conversations: dict[int, list[ConversationFile]] = {}
+        conversations: dict[int, list[ConversationStub]] = {}
         for id in conversation_ids:
             conversations[id] = [
                 conversation_speaker[id, "A"],
@@ -220,30 +222,28 @@ class SwitchboardDataset(Dataset):
 
         return conversations
 
-    def filter_conversations(
-        self, conversations: dict[int, list[ConversationFile]]
-    ) -> dict[int, list[ConversationFile]]:
+    def filter_conversation_stubs(
+        self, conversation_stubs: dict[int, list[ConversationStub]]
+    ) -> dict[int, list[ConversationStub]]:
         # If in debug mode, output a small subset of conversations to make
         # preprocessing go faster.
         if self.debug:
-            return {4345: conversations[4345], 3029: conversations[4785]}
+            return {4345: conversation_stubs[4345], 3029: conversation_stubs[4785]}
 
-        return conversations
+        return conversation_stubs
 
-    def get_segmented_transcripts(
-        self, conversations: dict[int, list[ConversationFile]]
+    def load_conversation_segments(
+        self, conversation_stubs: dict[int, list[ConversationStub]]
     ) -> dict[int, list[Segment]]:
         if self.segmentation == Segmentation.IPU:
             raise Exception("IPU segmentation currently not available!")
 
         segments: dict[int, list[Segment]] = {}
 
-        for id, conversation_files in tqdm(
-            conversations.items(), desc="Loading transcripts"
-        ):
+        for id, stubs in tqdm(conversation_stubs.items(), desc="Loading transcripts"):
             ipu_segmentation: list[Segment] = []
 
-            for speaker_conversation_file in conversation_files:
+            for stub in stubs:
                 id_str = str(id)
 
                 # swb_ms98 transcriptions have the following directory structure:
@@ -256,7 +256,7 @@ class SwitchboardDataset(Dataset):
                     "swb_ms98_transcriptions",
                     id_str[:2],
                     id_str,
-                    f"sw{id_str}{speaker_conversation_file.side}-ms98-a-word.text",
+                    f"sw{id_str}{stub.side}-ms98-a-word.text",
                 )
 
                 # Transcripts have the following structure:
@@ -278,8 +278,8 @@ class SwitchboardDataset(Dataset):
                         speaker_segmentation.append(
                             Segment(
                                 transcript=word,
-                                side=speaker_conversation_file.side,
-                                speaker_id=speaker_conversation_file.speaker_id,
+                                side=stub.side,
+                                speaker_id=stub.speaker_id,
                                 start=start,
                                 end=end,
                             )
