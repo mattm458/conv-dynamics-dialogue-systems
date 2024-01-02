@@ -10,33 +10,10 @@ from pandas import DataFrame
 from torchtext.data import get_tokenizer
 from tqdm import tqdm
 
-from cdmodel.preprocessing.consts import (
-    FEATURES,
-    FEATURES_NORM_BY_CONV_SPEAKER,
-    MANIFEST_VERSION,
-)
+from cdmodel.preprocessing.consts import FEATURES, FEATURES_NORM_BY_CONV_SPEAKER
 from cdmodel.preprocessing.datasets import Dataset
+from cdmodel.preprocessing.manifest import validate_df, write_manifest
 from cdmodel.preprocessing.normalize import norm_by_conv_speaker
-
-
-class DatasetVersionError(Exception):
-    def __init__(
-        self,
-        dataset_version: int,
-        supported_version: int = MANIFEST_VERSION,
-    ):
-        """
-        An exception indicating a mismatch between the expected and actual dataset version
-
-        Parameters
-        ----------
-        dataset_version : int
-            The given version of the dataset.
-        supported_version : int, optional
-            The version supported by the module. The latest version by default.
-        """
-        message = f"Preprocessed dataset version {dataset_version} is too old. Version supported: {supported_version}"
-        super().__init__(message)
 
 
 def _segment_export(df: DataFrame, out_dir: str) -> None:
@@ -251,29 +228,24 @@ def preprocess(
     except FileExistsError:
         print(f"Output directory {out_dir} already exists, resuming...")
 
-    manifest_path = path.join(out_dir, "MANIFEST")
-    if path.exists(manifest_path):
-        with open(manifest_path, "r") as infile:
-            version = int(infile.readline())
-            if version != MANIFEST_VERSION:
-                raise DatasetVersionError(dataset_version=version)
-    else:
-        with open(manifest_path, "w") as outfile:
-            outfile.write(str(MANIFEST_VERSION))
+    write_manifest(out_dir)
 
     # Step 1: Basic feature extraction and normalization
-    data = __extract_features(dataset=dataset, out_dir=out_dir)
-    data_norm = __normalize(df=data, out_dir=out_dir)
+    df = __extract_features(dataset=dataset, out_dir=out_dir)
+    print(df)
+    df = __normalize(df=df, out_dir=out_dir)
 
     # Step 2: Embeddings
-    __extract_embeddings(df=data_norm, out_dir=out_dir)
+    __extract_embeddings(df=df, out_dir=out_dir)
 
     # Step 3: Segment export
-    _segment_export(df=data_norm, out_dir=out_dir)
+    _segment_export(df=df, out_dir=out_dir)
+
+    validate_df(df=df)
 
     # ID assignment: All speakers
     torch.save(
-        dict((k, i + 1) for (i, k) in enumerate(data.speaker_id.unique())),
+        dict((k, i + 1) for (i, k) in enumerate(df.speaker_id.unique())),
         path.join(out_dir, "speaker-ids-all.pt"),
     )
 

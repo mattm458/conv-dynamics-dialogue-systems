@@ -25,5 +25,3 @@ NORM_BY_CONV_SPEAKER_POSTFIX: Final[str] = "_norm_by_conv_speaker"
 FEATURES_NORM_BY_CONV_SPEAKER: Final[list[str]] = [
     f"{x}_{NORM_BY_CONV_SPEAKER_POSTFIX}" for x in FEATURES
 ]
-
-MANIFEST_VERSION: Final[int] = 1

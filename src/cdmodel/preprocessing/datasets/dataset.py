@@ -91,18 +91,7 @@ def _process_transcript(
                 features["da_consolidated"] = da_consolidated
                 features["da_category"] = da_consolidate_category(da_consolidated)
 
-            da_dict = dict(
-                [
-                    (
-                        f"da_{da}",
-                        1 if segment.da is not None and da in segment.da else 0,
-                    )
-                    for da in da_precedence
-                ]
-            )
-            features |= da_dict
-
-        del features["da"]
+        features["da"] = ":".join(segment.da) if segment.da is not None else None
 
         output.append(features)
 
