@@ -11,8 +11,8 @@ from torchtext.data import get_tokenizer
 from tqdm import tqdm
 
 from cdmodel.consts import FEATURES, FEATURES_NORM_BY_CONV_SPEAKER
-from cdmodel.preprocessing.datasets import Dataset
 from cdmodel.data.manifest import validate_df, write_manifest
+from cdmodel.preprocessing.datasets import Dataset
 from cdmodel.preprocessing.normalize import norm_by_conv_speaker
 
 
