@@ -47,6 +47,21 @@ class DatasetVersionError(Exception):
 
 
 def write_manifest(out_dir: str) -> None:
+    """
+    Write the manifest to the dataset output directory. Alternatively, if the manifest is already there, check whether
+    the current version of the dataset matches the version in the manifest.
+
+    Parameters
+    ----------
+    out_dir : str
+        A path to the directory where the manifest should be writen.
+
+    Raises
+    ------
+    DatasetVersionError
+        Raised if a manifest already exists in out_dir, and its version is not the same as the version
+        currently being used for preprocessing output.
+    """
     manifest_path = path.join(out_dir, "MANIFEST")
     if path.exists(manifest_path):
         with open(manifest_path, "r") as infile:
@@ -59,6 +74,20 @@ def write_manifest(out_dir: str) -> None:
 
 
 def validate_df(df: DataFrame) -> None:
+    """
+    Validates a DataFrame according to the preprocessing schema.
+
+    Parameters
+    ----------
+    df : DataFrame
+        A DataFrame to validate
+
+    Raises
+    ------
+    Exception
+        Raised if the DataFrame contains columns that are not in the schema, or
+        is missing columns that should be in the schema.
+    """
     missing_columns = set(_MANIFEST_SCHEMA).difference(set(df.columns))
     extra_columns = set(df.columns) - set(_MANIFEST_SCHEMA)
 
