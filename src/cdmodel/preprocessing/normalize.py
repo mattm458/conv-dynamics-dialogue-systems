@@ -1,6 +1,6 @@
 import pandas as pd
 from pandas import DataFrame, Series
-from cdmodel.preprocessing.consts import NORM_BY_CONV_SPEAKER_POSTFIX
+from cdmodel.consts import NORM_BY_CONV_SPEAKER_POSTFIX
 
 
 def __do_norm(x: Series) -> Series:

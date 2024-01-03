@@ -3,7 +3,7 @@ from typing import Final
 
 from pandas import DataFrame
 
-from cdmodel.preprocessing.consts import FEATURES, FEATURES_NORM_BY_CONV_SPEAKER
+from cdmodel.consts import FEATURES, FEATURES_NORM_BY_CONV_SPEAKER
 
 _MANIFEST_VERSION: Final[int] = 1
 
@@ -46,6 +46,26 @@ class DatasetVersionError(Exception):
         super().__init__(message)
 
 
+def get_dataset_version(dir: str) -> int:
+    """
+    Get the version number of a preprocessed conversational dataset.
+
+    Parameters
+    ----------
+    dir : str
+        A path to the preprocessed dataset directory.
+
+    Returns
+    -------
+    int
+        The version number of the dataset.
+    """
+    manifest_path = path.join(dir, "MANIFEST")
+
+    with open(manifest_path, "r") as infile:
+        return int(infile.readline())
+
+
 def write_manifest(out_dir: str) -> None:
     """
     Write the manifest to the dataset output directory. Alternatively, if the manifest is already there, check whether
@@ -63,11 +83,11 @@ def write_manifest(out_dir: str) -> None:
         currently being used for preprocessing output.
     """
     manifest_path = path.join(out_dir, "MANIFEST")
+
     if path.exists(manifest_path):
-        with open(manifest_path, "r") as infile:
-            version = int(infile.readline())
-            if version != _MANIFEST_VERSION:
-                raise DatasetVersionError(dataset_version=version)
+        version = get_dataset_version(out_dir)
+        if version != _MANIFEST_VERSION:
+            raise DatasetVersionError(dataset_version=version)
     else:
         with open(manifest_path, "w") as outfile:
             outfile.write(str(_MANIFEST_VERSION))
