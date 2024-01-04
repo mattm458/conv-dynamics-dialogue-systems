@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 import torchtext
 from pandas import DataFrame
+from sklearn.model_selection import train_test_split
 from torchtext.data import get_tokenizer
 from tqdm import tqdm
 
@@ -112,7 +113,7 @@ def __normalize(df: DataFrame, out_dir: str) -> DataFrame:
     data_norm_csv_path: Final[str] = path.join(out_dir, "data-norm.csv")
     if path.exists(data_norm_csv_path):
         print("data-norm.csv exists, loading...")
-        return pd.read_csv(data_norm_csv_path)
+        return pd.read_csv(data_norm_csv_path, engine="pyarrow")
 
     # Perform normalization and save the results.
     data_norm = pd.concat(
@@ -152,7 +153,7 @@ def __extract_features(dataset: Dataset, out_dir: str) -> DataFrame:
     data_csv_path: Final[str] = path.join(out_dir, "data.csv")
     if path.exists(data_csv_path):
         print("data.csv exists, loading...")
-        return pd.read_csv(data_csv_path)
+        return pd.read_csv(data_csv_path, engine="pyarrow")
 
     # Perform feature extraction and save the results
     df = pd.DataFrame(dataset.extract_features())
@@ -206,7 +207,6 @@ def preprocess(
 
     # Determine if we support the dataset for preprocessing. If so, instantiate the
     # corresponding preprocessing object
-    dataset: Optional[Dataset] = None
     if dataset_name == "switchboard":
         from cdmodel.preprocessing.datasets import SwitchboardDataset
 
@@ -232,8 +232,9 @@ def preprocess(
 
     # Step 1: Basic feature extraction and normalization
     df = __extract_features(dataset=dataset, out_dir=out_dir)
-    print(df)
     df = __normalize(df=df, out_dir=out_dir)
+
+    validate_df(df=df)
 
     # Step 2: Embeddings
     __extract_embeddings(df=df, out_dir=out_dir)
@@ -241,13 +242,106 @@ def preprocess(
     # Step 3: Segment export
     _segment_export(df=df, out_dir=out_dir)
 
-    validate_df(df=df)
-
     # ID assignment: All speakers
-    torch.save(
-        dict((k, i + 1) for (i, k) in enumerate(df.speaker_id.unique())),
-        path.join(out_dir, "speaker-ids-all.pt"),
+    write_id_mapping(set(df.speaker_id.unique()), out_dir, "speaker-ids-all")
+
+    conversation_ids = list(df.id.unique())
+    write_split(conversation_ids, out_dir, "all")
+
+    # ID assignment: Dialogue acts only
+    da_conversation_ids = set(df[df.da.notnull()].id.unique())
+    write_id_mapping(
+        set(df[df.id.isin(da_conversation_ids)].speaker_id.unique()),
+        out_dir,
+        "speaker-ids-da",
     )
 
-    # TODO: Finish this
-    # print(dataset.get_conversations_with_min_speaker_repeat(min_repeat=3))
+    min_repeat_conversation_ids = get_conversation_ids_with_min_speaker_repeat(
+        df, min_repeat=3
+    )
+    write_id_mapping(
+        set(df[df.id.isin(min_repeat_conversation_ids)].speaker_id.unique()),
+        out_dir,
+        "speaker-ids-min-repeat",
+    )
+
+
+def write_split(conversation_ids: list[int], out_dir: str, name: str) -> None:
+    train_ids, test_ids = train_test_split(
+        conversation_ids, train_size=0.8, random_state=42
+    )
+    test_ids, val_ids = train_test_split(test_ids, test_size=0.5, random_state=42)
+
+    pd.DataFrame(train_ids).to_csv(
+        path.join(out_dir, f"train-{name}.csv"), header=False, index=False
+    )
+    pd.DataFrame(val_ids).to_csv(
+        path.join(out_dir, f"val-{name}.csv"), header=False, index=False
+    )
+    pd.DataFrame(test_ids).to_csv(
+        path.join(out_dir, f"test-{name}.csv"), header=False, index=False
+    )
+
+
+def get_conversation_ids_with_min_speaker_repeat(
+    df: DataFrame, min_repeat: int
+) -> list[int]:
+    df_calls = df.groupby(["id", "speaker_id", "side"]).size().reset_index()
+    call_counts = df_calls.speaker_id.value_counts()
+
+    eligible_callers = set(call_counts.index)
+
+    prev_eligible_caller_size = len(eligible_callers)
+
+    # Here, we iteratively reconstruct df_call_pairs by removing callers with fewer than 3 examples.
+    # We have to do this iteratively because an almost-rare caller (with only 3 instances) might converse
+    # with a rare caller (2 or fewer instances) and is removed, bringing their total count down to just 2.
+    # This iteration solves that problem and results in a dataset where we're guaranteed
+    # there are at least 3 instances of each caller.
+    while True:
+        # Get all the speakers from side A and B separately that are in the set of eligible callers
+        df_calls_a = df_calls[
+            (df_calls.side == "A") & (df_calls.speaker_id.isin(eligible_callers))
+        ].set_index("id")
+        df_calls_b = df_calls[
+            (df_calls.side == "B") & (df_calls.speaker_id.isin(eligible_callers))
+        ].set_index("id")
+
+        # Inner join sides A and B. This has the effect of removing conversations where one speaker was eligible, but the other was not.
+        df_call_pairs = df_calls_a.join(
+            df_calls_b, lsuffix="_a", rsuffix="_b", how="inner"
+        )
+
+        # Since some conversations may have disappeared, determine the new set of eligible callers according to min_repeat
+        call_counts = pd.concat(
+            [df_call_pairs.speaker_id_a, df_call_pairs.speaker_id_b]
+        ).value_counts()
+        call_counts = call_counts[call_counts >= min_repeat]
+        eligible_callers = set(call_counts.index)
+
+        # If nothing changed, then we found a complete set of calls where all callers were present at least min_repeat times.
+        if len(eligible_callers) == prev_eligible_caller_size:
+            break
+
+        # Otherwise, try again
+        prev_eligible_caller_size = len(eligible_callers)
+
+    return list(set(df[df.speaker_id.isin(eligible_callers)].id))
+
+
+def write_id_mapping(speaker_ids: set, out_dir: str, name: str) -> None:
+    """
+    Generate a speaker ID mapping and write it to a CSV file.
+
+    Parameters
+    ----------
+    speaker_ids : set
+        A set of speaker IDs to map.
+    out_dir : str
+        A path to the directory where the mapping should be saved.
+    filename : str
+        A name for the mapping.
+    """
+    df = pd.DataFrame((k, i + 1) for (i, k) in enumerate(speaker_ids))
+    df.columns = pd.Index(["speaker_id", "idx"])
+    df.to_csv(path.join(out_dir, f"{name}.csv"), index=False)
