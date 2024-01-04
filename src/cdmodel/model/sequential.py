@@ -333,7 +333,6 @@ class SequentialConversationModel(pl.LightningModule):
         self.validation_attention_ours_history_mask.clear()
         self.validation_attention_theirs.clear()
         self.validation_attention_theirs_history_mask.clear()
-        exit()
 
     def on_train_epoch_end(self):
         for name, parameter in self.named_parameters():
@@ -564,7 +563,12 @@ class SequentialConversationModel(pl.LightningModule):
 
             # Encode the input and append it to the history.
             encoded, encoder_hidden = self.encoder(encoder_in, encoder_hidden)
-            encoded = torch.concat([encoded, speaker_identity_timestep], dim=1)
+
+            encoded_list = [encoded]
+            if self.speaker_identity:
+                encoded_list.append(speaker_identity_timestep)
+
+            encoded = torch.concat(encoded_list, dim=1)
 
             history.append(encoded.unsqueeze(1))
 
