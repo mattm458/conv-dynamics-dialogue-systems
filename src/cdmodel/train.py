@@ -11,7 +11,7 @@ from lightning.pytorch.loggers import TensorBoardLogger
 from torch.utils.data.dataloader import DataLoader
 
 from cdmodel.data.dataloader import collate_fn, get_collate_fn
-from cdmodel.data.dataset import ConversationDataset
+from cdmodel.data.dataset_manifest_1 import ConversationDataset
 from cdmodel.data.dataset_legacy import LegacyConversationDataset
 from cdmodel.model.config import get_model
 from cdmodel.util.cv import get_52_cv_ids, get_cv_ids
@@ -247,13 +247,28 @@ def standard_train(
 
     i = 0
 
-    train_ids = np.array(
-        [x for x in open(dataset_config["train"]).read().split("\n") if len(x) > 0]
-    )
-    val_ids = np.array(
-        [x for x in open(dataset_config["val"]).read().split("\n") if len(x) > 0]
-    )
+    if "train" and "val" in dataset_config:
+        train_ids = np.array(
+            [x for x in open(dataset_config["train"]).read().split("\n") if len(x) > 0]
+        )
+        val_ids = np.array(
+            [x for x in open(dataset_config["val"]).read().split("\n") if len(x) > 0]
+        )
+    else:
+        train_path = path.join(
+            dataset_config["dir"],
+            f"train-{dataset_config['subset']}.csv",
+        )
+        train_ids = [x for x in open(train_path).read().split("\n") if len(x) > 0]
 
+        val_path = path.join(
+            dataset_config["dir"],
+            f"val-{dataset_config['subset']}.csv",
+        )
+        val_ids = [x for x in open(train_path).read().split("\n") if len(x) > 0]
+
+    dir = dataset_config["dir"]
+    subset = dataset_config["subset"]
     features = dataset_config["features"]
     gender = dataset_config["additional_inputs"]["gender"]
     speaker_identity = dataset_config["additional_inputs"]["speaker_identity"]
@@ -265,10 +280,13 @@ def standard_train(
     spectrogram_partner = dataset_config["spectrogram_partner"]
     speaker_id_encode_override = dataset_config["speaker_id_encode_override"]
 
+    speaker_ids = pd.read_csv(
+        path.join(dir, f"speaker-ids-{subset}.csv"), index_col="speaker_id"
+    )["idx"].to_dict()
+
     spectrogram_dir = None
     if "spectrogram_dir" in dataset_config:
         spectrogram_dir = dataset_config["spectrogram_dir"]
-        
 
     name = f"{training_config['name']}_{i}"
 
@@ -348,10 +366,10 @@ def standard_train(
         )
 
     train_dataset = Dataset(
-        train_ids,
-        embeddings_dir=embeddings_dir,
-        conversation_data_dir=conversation_data_dir,
+        dir=dir,
+        ids=train_ids,
         features=features,
+        speaker_ids=speaker_ids,
         gender=gender,
         speaker_identity=speaker_identity,
         speaker_identity_them=speaker_identity_them,
@@ -379,10 +397,10 @@ def standard_train(
         multiprocessing_context="fork",
     )
     val_dataset = Dataset(
-        val_ids,
-        embeddings_dir=embeddings_dir,
-        conversation_data_dir=conversation_data_dir,
+        dir=dir,
+        ids=val_ids,
         features=features,
+        speaker_ids=speaker_ids,
         gender=gender,
         speaker_identity=speaker_identity,
         speaker_identity_them=speaker_identity_them,

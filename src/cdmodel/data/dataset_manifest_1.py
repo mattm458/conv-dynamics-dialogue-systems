@@ -1,6 +1,6 @@
 import random
 from os import path
-from typing import Optional
+from typing import Final, Optional
 
 import torch
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
@@ -9,7 +9,7 @@ from torch.utils.data import Dataset
 
 from cdmodel.data.manifest import get_dataset_version
 
-FEATURES = [
+FEATURES: Final[list[str]] = [
     "pitch_mean_zscore",
     "pitch_range_zscore",
     "intensity_mean_vcd_zscore",
@@ -28,10 +28,10 @@ _MANIFEST_VERSION = 1
 class ConversationDataset(Dataset):
     def __init__(
         self,
-        conversation_ids,
-        embeddings_dir,
-        conversation_data_dir="fisher-ipu-data",
-        features=FEATURES,
+        dir: str,
+        ids: list[int],
+        speaker_ids: dict[int, int],
+        features: list[str] = FEATURES,
         gender=False,
         da=False,
         da_transform=None,
@@ -47,15 +47,15 @@ class ConversationDataset(Dataset):
         spectrogram_dir=None,
         speaker_id_encode_override: Optional[list] = None,
     ):
-        if _MANIFEST_VERSION != get_dataset_version(conversation_data_dir):
+        if _MANIFEST_VERSION != get_dataset_version(dir):
             raise Exception("Dataset version mismatch!")
 
         super().__init__()
 
-        self.conversation_ids = conversation_ids
-        self.embeddings_dir = embeddings_dir
-        self.conversation_data_dir = conversation_data_dir
+        self.dir = dir
+        self.ids = ids
         self.features = features
+        self.speaker_ids = speaker_ids
 
         if speaker_identity_always_us and speaker_identity_them:
             raise Exception(
@@ -98,11 +98,11 @@ class ConversationDataset(Dataset):
             self.speaker_id_override_encoder.fit(speaker_id_encode_override)
 
     def __len__(self):
-        return len(self.conversation_ids)
+        return len(self.ids)
 
     def __getitem__(self, i):
-        conv_id = self.conversation_ids[i]
-        conv_data = torch.load(path.join(self.conversation_data_dir, f"{conv_id}.pt"))
+        conv_id = self.ids[i]
+        conv_data = torch.load(path.join(self.dir, "segments", f"{conv_id}.pt"))
 
         features = []
         for feature in self.features:
@@ -111,14 +111,18 @@ class ConversationDataset(Dataset):
         features = torch.tensor(features).swapaxes(0, 1)
 
         embeddings = torch.load(
-            path.join(self.embeddings_dir, f"{conv_id}-embeddings.pt")
+            path.join(self.dir, "embeddings", f"{conv_id}-embeddings.pt")
         )
         embeddings_len = torch.load(
-            path.join(self.embeddings_dir, f"{conv_id}-lengths.pt")
+            path.join(self.dir, "embeddings", f"{conv_id}-lengths.pt")
         )
 
-        speaker_id_idx = torch.tensor(conv_data["speaker_id_idx"])
-        partner_id_idx = torch.tensor(conv_data["speaker_id_partner_idx"])
+        speaker_id_idx = torch.tensor(
+            [self.speaker_ids[x] for x in conv_data["speaker_id"]]
+        )
+        partner_id_idx = torch.tensor(
+            [self.speaker_ids[x] for x in conv_data["speaker_id_partner"]]
+        )
 
         # Determine which of the speakers is the agent
         if (
