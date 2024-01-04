@@ -6,6 +6,7 @@ from typing import Final, Optional
 import pandas as pd
 import torch
 import torchtext
+import ujson
 from pandas import DataFrame
 from sklearn.model_selection import train_test_split
 from torchtext.data import get_tokenizer
@@ -19,7 +20,7 @@ from cdmodel.preprocessing.normalize import norm_by_conv_speaker
 
 def _segment_export(df: DataFrame, out_dir: str) -> None:
     """
-    Export conversational segment data to Torch .pt files organized by conversation.
+    Export conversational segment data to JSOPN files organized by conversation.
 
     Parameters
     ----------
@@ -39,7 +40,12 @@ def _segment_export(df: DataFrame, out_dir: str) -> None:
     os.mkdir(segment_path)
 
     for id, group in tqdm(df.groupby("id"), desc="Exporting segments"):
-        torch.save(group.to_dict(orient="list"), path.join(segment_path, f"{id}.pt"))
+        group_dict = group.to_dict(orient="series")
+        for k in group_dict:
+            group_dict[k] = group_dict[k].tolist()
+
+        with open(path.join(segment_path, f"{id}.json"), "w") as outfile:
+            ujson.dump(group_dict, outfile)
 
 
 def __extract_embeddings(df: DataFrame, out_dir: str) -> None:
@@ -162,6 +168,14 @@ def __extract_features(dataset: Dataset, out_dir: str) -> DataFrame:
     return df
 
 
+def write_da(df: DataFrame, da_col: str, out_dir: str) -> None:
+    df_da = pd.DataFrame(
+        (da, i + 1) for (i, da) in enumerate(df[da_col][df[da_col].notnull()].unique())
+    )
+    df_da.columns = pd.Index(["da", "idx"])
+    df_da.to_csv(path.join(out_dir, f"{da_col}.csv"), index=False)
+
+
 def preprocess(
     dataset_name: str,
     dataset_dir: str,
@@ -234,7 +248,11 @@ def preprocess(
     df = __extract_features(dataset=dataset, out_dir=out_dir)
     df = __normalize(df=df, out_dir=out_dir)
 
-    validate_df(df=df)
+    validate_df(df)
+
+    # Write dialogue act indices
+    write_da(df, "da_consolidated", out_dir=out_dir)
+    write_da(df, "da_category", out_dir=out_dir)
 
     # Step 2: Embeddings
     __extract_embeddings(df=df, out_dir=out_dir)
