@@ -1,0 +1,48 @@
+{
+    "dataset": {
+        "train": "switchboard-speaker-train_ids.csv",
+        "test": "switchboard-speaker-test_ids.csv",
+        "val": "switchboard-speaker-val_ids.csv",
+        "features": [
+            "pitch_mean_norm_range",
+            "pitch_range_norm_range",
+            "intensity_mean_vcd_norm_range",
+            "jitter_norm_range",
+            "shimmer_norm_range",
+            "nhr_vcd_norm_range",
+            "rate_norm_range"
+        ],
+        "additional_inputs": {
+            "gender": false,
+            "speaker_identity": true
+        }
+    },
+    "training": {
+        "lr": 0.0005,
+        "batch_size": 32,
+        "early_stopping_patience": 25,
+        "name": "dual_attention_switchboard_speaker"
+    },
+    "model": {
+        "type": "sequential",
+        "args": {
+            "embedding_dim": 50,
+            "embedding_encoder_out_dim": 32,
+            "embedding_encoder_num_layers": 2,
+            "embedding_encoder_dropout": 0.0,
+            "embedding_encoder_att_dim": 32,
+            "encoder_hidden_dim": 32,
+            "encoder_num_layers": 2,
+            "encoder_dropout": 0.0,
+            "decoder_att_dim": 32,
+            "decoder_hidden_dim": 32,
+            "decoder_num_layers": 2,
+            "decoder_dropout": 0.0,
+            "num_decoders": 7,
+            "attention_style": "dual",
+            "gender": false,
+            "speaker_identity": true,
+            "speaker_identity_dim": 8
+        }
+    }
+}
