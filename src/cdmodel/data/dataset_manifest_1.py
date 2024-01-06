@@ -20,9 +20,6 @@ FEATURES: Final[list[str]] = [
     "rate_zscore",
 ]
 
-AGENT = [0.0, 1.0]
-PARTNER = [1.0, 0.0]
-
 _MANIFEST_VERSION = 1
 
 
