@@ -265,7 +265,7 @@ def standard_train(
             dataset_config["dir"],
             f"val-{dataset_config['subset']}.csv",
         )
-        val_ids = [x for x in open(train_path).read().split("\n") if len(x) > 0]
+        val_ids = [x for x in open(val_path).read().split("\n") if len(x) > 0]
 
     dir = dataset_config["dir"]
     subset = dataset_config["subset"]
