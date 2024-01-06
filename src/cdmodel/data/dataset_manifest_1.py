@@ -2,7 +2,9 @@ import random
 from os import path
 from typing import Final, Optional
 
+import pandas as pd
 import torch
+import ujson
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from torch.nn import functional as F
 from torch.utils.data import Dataset
@@ -32,8 +34,7 @@ class ConversationDataset(Dataset):
         ids: list[int],
         speaker_ids: dict[int, int],
         features: list[str] = FEATURES,
-        gender=False,
-        da=False,
+        gender: bool = False,
         da_transform=None,
         da_encode=False,
         da_tags=None,
@@ -57,13 +58,20 @@ class ConversationDataset(Dataset):
         self.features = features
         self.speaker_ids = speaker_ids
 
+        # Load dialogue act indices
+        self.da_category_idx = pd.read_csv(
+            path.join(dir, "da_category.csv"), index_col="da"
+        )["idx"].to_dict()
+        self.da_consolidated_idx = pd.read_csv(
+            path.join(dir, "da_consolidated.csv"), index_col="da"
+        )["idx"].to_dict()
+
         if speaker_identity_always_us and speaker_identity_them:
             raise Exception(
                 "Parameters 'speaker_identity_always_us' and 'speaker_identity_them' cannot be used together!"
             )
 
         self.gender = gender
-        self.da = da
         self.da_transform = da_transform
         self.speaker_identity = speaker_identity
         self.speaker_identity_them = speaker_identity_them
@@ -102,7 +110,8 @@ class ConversationDataset(Dataset):
 
     def __getitem__(self, i):
         conv_id = self.ids[i]
-        conv_data = torch.load(path.join(self.dir, "segments", f"{conv_id}.pt"))
+        with open(path.join(self.dir, "segments", f"{conv_id}.json")) as infile:
+            conv_data = ujson.load(infile)
 
         features = []
         for feature in self.features:
@@ -188,22 +197,21 @@ class ConversationDataset(Dataset):
             "conv_len": conv_len,
             "y": y,
             "y_len": torch.LongTensor([len(y)]),
+            "da_category": conv_data["da_category"],
+            "da_category_idx": torch.LongTensor(
+                [
+                    self.da_category_idx[x] if x is not None else 0
+                    for x in conv_data["da_category"]
+                ]
+            ),
+            "da_consolidated": conv_data["da_consolidated"],
+            "da_consolidated_idx": torch.LongTensor(
+                [
+                    self.da_consolidated_idx[x] if x is not None else 0
+                    for x in conv_data["da_consolidated"]
+                ]
+            ),
         }
-
-        if self.da:
-            da = conv_data["da"]
-
-            if self.da_transform:
-                da = [self.da_transform(x) for x in da]
-
-            if self.da_encode:
-                da = self.da_encoder.transform([[x] for x in da])
-
-            if self.zero_pad:
-                raise Exception("Not implemented yet!")
-                # output["da"] = conv_data["da"]
-
-            output["da"] = torch.tensor(da)
 
         if self.gender:
             if self.zero_pad:
