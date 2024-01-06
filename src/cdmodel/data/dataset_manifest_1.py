@@ -116,8 +116,7 @@ class ConversationDataset(Dataset):
             gender = [None] + gender
             gender_idx = F.pad(gender_idx, (1, 0))
 
-            #embeddings = F.pad(embeddings, (0, 0, 0, 0, 1, 0))
-            embeddings_len = F.pad(embeddings_len, (1, 0), value=0)
+            embeddings_len = F.pad(embeddings_len, (1, 0))
 
             speaker_id = [None] + speaker_id
             speaker_id_idx = F.pad(speaker_id_idx, (1, 0))
