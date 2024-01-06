@@ -34,10 +34,6 @@ class ConversationDataset(Dataset):
         ids: list[int],
         speaker_ids: dict[int, int],
         features: list[str] = FEATURES,
-        gender: bool = False,
-        da_transform=None,
-        da_encode=False,
-        da_tags=None,
         speaker_identity=False,
         speaker_identity_them=True,
         speaker_identity_always_us=False,
@@ -71,18 +67,9 @@ class ConversationDataset(Dataset):
                 "Parameters 'speaker_identity_always_us' and 'speaker_identity_them' cannot be used together!"
             )
 
-        self.gender = gender
-        self.da_transform = da_transform
         self.speaker_identity = speaker_identity
         self.speaker_identity_them = speaker_identity_them
         self.speaker_identity_always_us = speaker_identity_always_us
-
-        if da_encode and not da_tags:
-            raise Exception("Encoding dialogue acts requires a list of valid tags")
-        self.da_encode = da_encode
-        if da_encode:
-            self.da_encoder = OneHotEncoder(sparse_output=False)
-            self.da_encoder.fit([[x] for x in da_tags])
 
         self.zero_pad = zero_pad
 
@@ -105,19 +92,17 @@ class ConversationDataset(Dataset):
             self.speaker_id_override_encoder = LabelEncoder()
             self.speaker_id_override_encoder.fit(speaker_id_encode_override)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.ids)
 
-    def __getitem__(self, i):
+    def __getitem__(self, i: int) -> dict:
         conv_id = self.ids[i]
         with open(path.join(self.dir, "segments", f"{conv_id}.json")) as infile:
             conv_data = ujson.load(infile)
 
-        features = []
-        for feature in self.features:
-            features.append(conv_data[feature])
-
-        features = torch.tensor(features).swapaxes(0, 1)
+        features = torch.tensor(
+            [conv_data[feature] for feature in self.features]
+        ).swapaxes(0, 1)
 
         embeddings = torch.load(
             path.join(self.dir, "embeddings", f"{conv_id}-embeddings.pt")
@@ -130,7 +115,13 @@ class ConversationDataset(Dataset):
             [self.speaker_ids[x] for x in conv_data["speaker_id"]]
         )
         partner_id_idx = torch.tensor(
-            [self.speaker_ids[x] for x in conv_data["speaker_id_partner"]]
+            [self.speaker_ids[x] for x in conv_data["speaker_id_partner"]],
+            dtype=torch.long,
+        )
+
+        gender = conv_data["gender"]
+        gender_idx = torch.tensor(
+            [1 if x == "m" else 2 for x in conv_data["gender"]], dtype=torch.long
         )
 
         # Determine which of the speakers is the agent
@@ -164,8 +155,9 @@ class ConversationDataset(Dataset):
         if self.zero_pad:
             features = F.pad(features, (0, 0, 1, 0))
             speaker_role = F.pad(speaker_role, (0, 0, 1, 0))
-            # TODO: Probably not necessary, just include an embeddings_len of 0?
-            # embeddings = F.pad(embeddings, (0, 0, 1, 0))
+            gender = [None] + gender
+            gender_idx = F.pad(gender_idx, (1, 0))
+
             embeddings_len = F.pad(embeddings_len, (1, 0), value=1)
             embeddings = F.pad(embeddings, (0, 0, 0, 0, 1, 0))
 
@@ -211,14 +203,9 @@ class ConversationDataset(Dataset):
                     for x in conv_data["da_consolidated"]
                 ]
             ),
+            "gender": gender,
+            "gender_idx": gender_idx,
         }
-
-        if self.gender:
-            if self.zero_pad:
-                raise Exception("Not implemented yet!")
-                # output["gender"] = conv_data["gender_one_hot"]
-            else:
-                output["gender"] = conv_data["gender_one_hot"]
 
         if self.speaker_identity:
             speaker_identity = speaker_id_idx
