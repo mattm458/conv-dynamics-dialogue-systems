@@ -1,16 +1,14 @@
 import os
-import re
 from collections import Counter, defaultdict
 from os import path
-from typing import Optional
 
 import pandas as pd
-from pandas import DataFrame
 from tqdm import tqdm
 
 from cdmodel.preprocessing.datasets.dataset import (
     ConversationStub,
     Dataset,
+    DatasetPropertiesDict,
     Segment,
     Segmentation,
 )
@@ -46,6 +44,9 @@ class SwitchboardDataset(Dataset):
 
         self.call_metadata = load_call_metadata(self.dataset_dir)
         self.caller_metadata = load_caller_metadata(self.dataset_dir)
+
+    def get_properties(self) -> DatasetPropertiesDict:
+        return {"has_da": True}
 
     def apply_dialogue_acts(
         self, conversation_segments: dict[int, list[Segment]]

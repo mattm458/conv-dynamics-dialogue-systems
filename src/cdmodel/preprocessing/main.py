@@ -250,6 +250,10 @@ def preprocess(
 
     validate_df(df)
 
+    # Write dataset properties
+    with open(path.join(out_dir, "properties.json"), "w") as outfile:
+        ujson.dump(dataset.get_properties(), outfile)
+
     # Write dialogue act indices
     write_da(df, "da_consolidated", out_dir=out_dir)
     write_da(df, "da_category", out_dir=out_dir)

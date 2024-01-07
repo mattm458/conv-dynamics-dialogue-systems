@@ -5,12 +5,8 @@ from functools import partial
 from typing import NamedTuple, Optional
 
 import parselmouth
-import torch
-
-# import torchaudio
+from mypy_extensions import TypedDict
 from pqdm.processes import pqdm
-
-# from speech_utils.audio.transforms.mel_spectrogram import TacotronMelSpectrogram
 from speech_utils.preprocessing.feature_extraction import extract_features
 
 from cdmodel.preprocessing.datasets.da import da_consolidate_category, da_vote
@@ -35,6 +31,9 @@ class Segment(NamedTuple):
 class Segmentation(Enum):
     TURN = "turn"
     IPU = "ipu"
+
+
+DatasetPropertiesDict = TypedDict("DatasetPropertiesDict", {"has_da": bool})
 
 
 # This function performs feature extraction on all segments within a conversation.
@@ -98,57 +97,6 @@ def _process_transcript(
     return output
 
 
-from matplotlib import pyplot as plt
-
-# Compute the Mel spectrograms of conversation-initial segments from each speaker
-# def _get_first_spectrograms(
-#     transcript: list[Segment],
-#     conversation: list[ConversationFile],
-#     expected_sr: int,
-#     mel_spectrogram: torchaudio.transforms.MelSpectrogram,
-# ) -> dict[int, torch.Tensor]:
-#     conversation_dict: dict[int, ConversationFile] = {}
-#     for x in conversation:
-#         conversation_dict[x.speaker_id] = x
-
-#     output: dict[int, torch.Tensor] = {}
-
-#     for t in transcript:
-#         if t.speaker_id not in output:
-#             path = conversation_dict[t.speaker_id].path
-#             audio, sr = torchaudio.load(path)
-#             if sr != expected_sr:
-#                 raise Exception(
-#                     f"Audio file {path} does not have the dataset-specified sample rate of {expected_sr}, has {sr} instead!"
-#                 )
-
-#             audio = audio[0, round(t.start * sr) : round(t.end * sr)]
-#             output[t.speaker_id] = mel_spectrogram(audio)
-
-#         if len(output) == 2:
-#             break
-
-#     return output
-
-
-# Compute the Mel spectrogram of conversation-initial segments from each speaker
-# in each conversation
-# def _get_all_first_spectrograms(
-#     transcripts: dict[int, list[Segment]],
-#     conversations: dict[int, list[ConversationFile]],
-#     expected_sr: int,
-#     mel_spectrogram: torchaudio.transforms.MelSpectrogram,
-# ) -> dict[int, dict[int, torch.Tensor]]:
-#     output: dict[int, dict[int, torch.Tensor]] = {}
-
-#     for id, transcript in transcripts.items():
-#         output[id] = _get_first_spectrograms(
-#             transcript, conversations[id], expected_sr, mel_spectrogram
-#         )
-
-#     return output
-
-
 class Dataset(ABC):
     def __init__(
         self,
@@ -208,6 +156,10 @@ class Dataset(ABC):
 
         # Flatten the returned list of extracted features
         return [item for sublist in processed for item in sublist]
+
+    @abstractmethod
+    def get_properties(self) -> DatasetPropertiesDict:
+        pass
 
     @abstractmethod
     def load_conversation_stubs(self) -> dict[int, list[ConversationStub]]:

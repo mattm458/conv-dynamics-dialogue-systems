@@ -44,13 +44,19 @@ class ConversationDataset(Dataset):
         self.speaker_ids: Final[list[int]] = speaker_ids
         self.zero_pad: Final[bool] = zero_pad
 
+        with open(path.join(dataset_dir, "properties.json")) as infile:
+            properties = ujson.load(infile)
+
+        self.has_da: Final[bool] = properties["has_da"]
+
         # Load dialogue act indices
-        self.da_category_idx: Final[dict[str, int]] = pd.read_csv(
-            path.join(dataset_dir, "da_category.csv"), index_col="da"
-        )["idx"].to_dict()
-        self.da_consolidated_idx: Final[dict[str, int]] = pd.read_csv(
-            path.join(dataset_dir, "da_consolidated.csv"), index_col="da"
-        )["idx"].to_dict()
+        if self.has_da:
+            self.da_category_idx: Final[dict[str, int]] = pd.read_csv(
+                path.join(dataset_dir, "da_category.csv"), index_col="da"
+            )["idx"].to_dict()
+            self.da_consolidated_idx: Final[dict[str, int]] = pd.read_csv(
+                path.join(dataset_dir, "da_consolidated.csv"), index_col="da"
+            )["idx"].to_dict()
 
     def __len__(self) -> int:
         return len(self.conv_id)
@@ -89,23 +95,24 @@ class ConversationDataset(Dataset):
             [1 if x == "m" else 2 for x in conv_data["gender"]], dtype=torch.long
         )
 
-        da_category: list[str | None] = conv_data["da_category"]
-        da_category_idx = torch.tensor(
-            [
-                self.da_category_idx[x] if x is not None else 0
-                for x in conv_data["da_category"]
-            ],
-            dtype=torch.long,
-        )
+        if self.has_da:
+            da_category: list[str | None] = conv_data["da_category"]
+            da_category_idx = torch.tensor(
+                [
+                    self.da_category_idx[x] if x is not None else 0
+                    for x in conv_data["da_category"]
+                ],
+                dtype=torch.long,
+            )
 
-        da_consolidated: list[str | None] = conv_data["da_consolidated"]
-        da_consolidated_idx: Tensor = torch.tensor(
-            [
-                self.da_consolidated_idx[x] if x is not None else 0
-                for x in conv_data["da_consolidated"]
-            ],
-            dtype=torch.long,
-        )
+            da_consolidated: list[str | None] = conv_data["da_consolidated"]
+            da_consolidated_idx: Tensor = torch.tensor(
+                [
+                    self.da_consolidated_idx[x] if x is not None else 0
+                    for x in conv_data["da_consolidated"]
+                ],
+                dtype=torch.long,
+            )
 
         if self.zero_pad:
             features = F.pad(features, (0, 0, 1, 0))
@@ -121,21 +128,18 @@ class ConversationDataset(Dataset):
             speaker_id_partner = [None] + speaker_id_partner
             speaker_id_partner_idx = F.pad(speaker_id_partner_idx, (1, 0))
 
-            da_category = [None] + da_category
-            da_category_idx = F.pad(da_category_idx, (1, 0))
+            if self.has_da:
+                da_category = [None] + da_category
+                da_category_idx = F.pad(da_category_idx, (1, 0))
 
-            da_consolidated = [None] + da_consolidated
-            da_consolidated_idx = F.pad(da_consolidated_idx, (1, 0))
+                da_consolidated = [None] + da_consolidated
+                da_consolidated_idx = F.pad(da_consolidated_idx, (1, 0))
 
         output: Final[dict] = {
             "features": features,
             "embeddings": embeddings,
             "embeddings_len": embeddings_len,
             "num_segments": len(features),
-            "da_category": da_category,
-            "da_category_idx": da_category_idx,
-            "da_consolidated": da_consolidated,
-            "da_consolidated_idx": da_consolidated_idx,
             "gender": gender,
             "gender_idx": gender_idx,
             "speaker_id": speaker_id,
@@ -143,5 +147,11 @@ class ConversationDataset(Dataset):
             "speaker_id_partner": speaker_id_partner,
             "speaker_id_partner_idx": speaker_id_partner_idx,
         }
+
+        if self.has_da:
+            output["da_category"] = da_category
+            output["da_category_idx"] = da_category_idx
+            output["da_consolidated"] = da_consolidated
+            output["da_consolidated_idx"] = da_consolidated_idx
 
         return output
