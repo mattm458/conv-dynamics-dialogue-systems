@@ -48,6 +48,19 @@ class DatasetVersionError(Exception):
 
 
 def get_dataset_properties(dir: str) -> dict:
+    """
+    Load the dataset properties file.
+
+    Parameters
+    ----------
+    dir : str
+        A path to the preprocessed dataset directory.
+
+    Returns
+    -------
+    dict
+        The dataset's properties as a dictionary.
+    """
     with open(path.join(dir, "properties.json")) as infile:
         return ujson.load(infile)
 
