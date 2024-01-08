@@ -8,7 +8,7 @@ from torch import Tensor
 from torch.nn import functional as F
 from torch.utils.data import Dataset
 
-from cdmodel.data.manifest import get_dataset_version
+from cdmodel.data.manifest import get_dataset_properties, get_dataset_version
 
 FEATURES: Final[list[str]] = [
     "pitch_mean_zscore",
@@ -44,12 +44,11 @@ class ConversationDataset(Dataset):
         self.speaker_ids: Final[list[int]] = speaker_ids
         self.zero_pad: Final[bool] = zero_pad
 
-        with open(path.join(dataset_dir, "properties.json")) as infile:
-            properties = ujson.load(infile)
-
+        # Additional configurations based on the dataset itself
+        properties: dict = get_dataset_properties(dataset_dir)
         self.has_da: Final[bool] = properties["has_da"]
 
-        # Load dialogue act indices
+        # If the dataset contains dialogue acts, load the dialogue act index mappings
         if self.has_da:
             self.da_category_idx: Final[dict[str, int]] = pd.read_csv(
                 path.join(dataset_dir, "da_category.csv"), index_col="da"

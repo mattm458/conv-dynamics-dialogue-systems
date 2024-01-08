@@ -1,6 +1,7 @@
 from os import path
 from typing import Final
 
+import ujson
 from pandas import DataFrame
 
 from cdmodel.consts import FEATURES, FEATURES_NORM_BY_CONV_SPEAKER
@@ -44,6 +45,11 @@ class DatasetVersionError(Exception):
         """
         message = f"Preprocessed dataset version {dataset_version} is too old. Version supported: {supported_version}"
         super().__init__(message)
+
+
+def get_dataset_properties(dir: str) -> dict:
+    with open(path.join(dir, "properties.json")) as infile:
+        return ujson.load(infile)
 
 
 def get_dataset_version(dir: str) -> int:
