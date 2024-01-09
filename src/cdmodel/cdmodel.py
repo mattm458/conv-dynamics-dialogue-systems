@@ -20,6 +20,7 @@ def main(ctx: Context, config: Optional[str], device: int):
 
 @main.command()
 @click.pass_context
+@click.option("--dataset-dir", required=True, type=str)
 @click.option(
     "--method",
     required=True,
@@ -27,16 +28,13 @@ def main(ctx: Context, config: Optional[str], device: int):
     type=click.Choice(["standard", "cv"]),
 )
 @click.option("--n-jobs", required=False, default=2, type=int)
-@click.option("--resume", required=False, type=str)
-@click.option("--embeddings-dir", required=True, type=str)
-@click.option("--conversation-data-dir", required=True, type=str)
+@click.option("--out-dir", required=False, type=str)
 def train(
     ctx: Context,
+    dataset_dir: str,
     method: str,
     n_jobs: int,
-    resume: str,
-    embeddings_dir: str,
-    conversation_data_dir: str,
+    out_dir: str,
 ):
     if ctx.obj["config"] is None:
         raise Exception(
@@ -44,31 +42,30 @@ def train(
         )
 
     if method == "cv":
-        from cdmodel.train import cross_validate_52
+        raise NotImplementedError()
+        # from cdmodel.train_manifest_v1 import cross_validate_52
 
-        cross_validate_52(
-            dataset_config=ctx.obj["config"]["dataset"],
-            training_config=ctx.obj["config"]["training"],
-            model_config=ctx.obj["config"]["model"],
-            device=ctx.obj["device"],
-            n_jobs=n_jobs,
-            resume=resume,
-            embeddings_dir=embeddings_dir,
-            conversation_data_dir=conversation_data_dir,
-        )
+        # cross_validate_52(
+        #     dataset_config=ctx.obj["config"]["dataset"],
+        #     training_config=ctx.obj["config"]["training"],
+        #     model_config=ctx.obj["config"]["model"],
+        #     device=ctx.obj["device"],
+        #     n_jobs=n_jobs,
+        #     resume=resume,
+        #     embeddings_dir=embeddings_dir,
+        #     conversation_data_dir=conversation_data_dir,
+        # )
     elif method == "standard":
-        from cdmodel.train import standard_train
+        from cdmodel.train_manifest_v1 import standard_train
 
         standard_train(
+            dataset_dir=dataset_dir,
             dataset_config=ctx.obj["config"]["dataset"],
             training_config=ctx.obj["config"]["training"],
             model_config=ctx.obj["config"]["model"],
             device=ctx.obj["device"],
-            resume=resume,
-            embeddings_dir=embeddings_dir,
-            conversation_data_dir=conversation_data_dir,
+            out_dir_override=out_dir,
         )
-    pass
 
 
 @main.command(help="Produce the statistics and graphs used in the paper.")
