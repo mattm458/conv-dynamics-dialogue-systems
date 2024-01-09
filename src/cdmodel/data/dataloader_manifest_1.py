@@ -18,6 +18,10 @@ class BatchedConversationData(NamedTuple):
     speaker_id_idx: Tensor
     speaker_id_partner: list[list[int]]
     speaker_id_partner_idx: Tensor
+    side_a_speaker_id: list[int]
+    side_a_speaker_id_idx: Tensor
+    side_b_speaker_id: list[int]
+    side_b_speaker_id_idx: Tensor
     da_category: Optional[list[list[str]]] = None
     da_category_idx: Optional[Tensor] = None
     da_consolidated: Optional[list[list[str]]] = None
@@ -35,6 +39,10 @@ def collate_fn(batches: list[ConversationData]) -> ConversationData:
     speaker_id_idx_all: Final[list[Tensor]] = []
     speaker_id_partner_all: Final[list[list[int]]] = []
     speaker_id_partner_idx_all: Final[list[Tensor]] = []
+    side_a_speaker_id_all: Final[list[int]] = []
+    side_a_speaker_id_idx_all: Final[list[Tensor]] = []
+    side_b_speaker_id_all: Final[list[int]] = []
+    side_b_speaker_id_idx_all: Final[list[Tensor]] = []
 
     # Optional: Dialogue acts
     has_da: bool = False
@@ -57,6 +65,10 @@ def collate_fn(batches: list[ConversationData]) -> ConversationData:
         speaker_id_idx_all.append(batch.speaker_id_idx)
         speaker_id_partner_all.append(batch.speaker_id_partner)
         speaker_id_partner_idx_all.append(batch.speaker_id_partner_idx)
+        side_a_speaker_id_all.append(batch.side_a_speaker_id)
+        side_a_speaker_id_idx_all.append(batch.side_a_speaker_id_idx)
+        side_b_speaker_id_all.append(batch.side_b_speaker_id)
+        side_b_speaker_id_idx_all.append(batch.side_b_speaker_id_idx)
 
         if batch.da_category is not None:
             has_da = True
@@ -107,6 +119,11 @@ def collate_fn(batches: list[ConversationData]) -> ConversationData:
         speaker_id_partner_idx_all, batch_first=True
     )
 
+    side_a_speaker_id: Final[list[int]] = side_a_speaker_id_all
+    side_a_speaker_id_idx: Final[Tensor] = torch.cat(side_a_speaker_id_idx_all, dim=0)
+    side_b_speaker_id: Final[list[int]] = side_b_speaker_id_all
+    side_b_speaker_id_idx: Final[Tensor] = torch.cat(side_b_speaker_id_idx_all, dim=0)
+
     da_category: Optional[list[list[int]]] = None
     da_category_idx: Optional[Tensor] = None
     da_consolidated: Optional[list[list[int]]] = None
@@ -132,6 +149,10 @@ def collate_fn(batches: list[ConversationData]) -> ConversationData:
         speaker_id_idx=speaker_id_idx,
         speaker_id_partner=speaker_id_partner,
         speaker_id_partner_idx=speaker_id_partner_idx,
+        side_a_speaker_id=side_a_speaker_id,
+        side_a_speaker_id_idx=side_a_speaker_id_idx,
+        side_b_speaker_id=side_b_speaker_id,
+        side_b_speaker_id_idx=side_b_speaker_id_idx,
         da_category=da_category,
         da_category_idx=da_category_idx,
         da_consolidated=da_consolidated,

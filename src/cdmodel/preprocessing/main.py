@@ -20,7 +20,7 @@ from cdmodel.preprocessing.normalize import norm_by_conv_speaker
 
 def _segment_export(df: DataFrame, out_dir: str) -> None:
     """
-    Export conversational segment data to JSOPN files organized by conversation.
+    Export conversational segment data to JSON files organized by conversation.
 
     Parameters
     ----------
@@ -34,15 +34,19 @@ def _segment_export(df: DataFrame, out_dir: str) -> None:
     # in the output directory. If not, we have to perform segment export.
     segment_path: Final[str] = path.join(out_dir, "segments")
     if path.exists(segment_path):
-        print("segments directory exists, skipping...")
-        return
-
-    os.mkdir(segment_path)
+        print("segments directory exists, overwriting...")
+    else:
+        os.mkdir(segment_path)
 
     for id, group in tqdm(df.groupby("id"), desc="Exporting segments"):
+        side_dict = group.groupby("side")["speaker_id"].unique().to_dict()
         group_dict = group.to_dict(orient="series")
+
         for k in group_dict:
             group_dict[k] = group_dict[k].tolist()
+
+        group_dict["side_a_speaker_id"] = int(side_dict["A"][0])
+        group_dict["side_b_speaker_id"] = int(side_dict["B"][0])
 
         with open(path.join(segment_path, f"{id}.json"), "w") as outfile:
             ujson.dump(group_dict, outfile)

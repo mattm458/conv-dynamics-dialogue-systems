@@ -34,6 +34,10 @@ class ConversationData(NamedTuple):
     speaker_id_idx: Tensor
     speaker_id_partner: list[int]
     speaker_id_partner_idx: Tensor
+    side_a_speaker_id: int
+    side_a_speaker_id_idx: Tensor
+    side_b_speaker_id: int
+    side_b_speaker_id_idx: Tensor
     da_category: Optional[list[str]] = None
     da_category_idx: Optional[Tensor] = None
     da_consolidated: Optional[list[str]] = None
@@ -94,6 +98,11 @@ class ConversationDataset(Dataset):
             path.join(self.dataset_dir, "embeddings", f"{conv_id}-lengths.pt")
         )
 
+        gender: list[str | None] = conv_data["gender"]
+        gender_idx: Tensor = torch.tensor(
+            [1 if x == "m" else 2 for x in conv_data["gender"]], dtype=torch.long
+        )
+
         speaker_id: list[int | None] = conv_data["speaker_id"]
         speaker_id_idx: Tensor = torch.tensor(
             [self.speaker_ids[x] for x in conv_data["speaker_id"]],
@@ -106,9 +115,13 @@ class ConversationDataset(Dataset):
             dtype=torch.long,
         )
 
-        gender: list[str | None] = conv_data["gender"]
-        gender_idx: Tensor = torch.tensor(
-            [1 if x == "m" else 2 for x in conv_data["gender"]], dtype=torch.long
+        side_a_speaker_id: Final[int] = conv_data["side_a_speaker_id"]
+        side_a_speaker_id_idx: Final[Tensor] = torch.tensor(
+            [self.speaker_ids[side_a_speaker_id]], dtype=torch.long
+        )
+        side_b_speaker_id: Final[int] = conv_data["side_b_speaker_id"]
+        side_b_speaker_id_idx: Final[Tensor] = torch.tensor(
+            [self.speaker_ids[side_b_speaker_id]], dtype=torch.long
         )
 
         da_category: Optional[list[str]] = None
@@ -167,6 +180,10 @@ class ConversationDataset(Dataset):
             speaker_id_idx=speaker_id_idx,
             speaker_id_partner=speaker_id_partner,
             speaker_id_partner_idx=speaker_id_partner_idx,
+            side_a_speaker_id=side_a_speaker_id,
+            side_a_speaker_id_idx=side_a_speaker_id_idx,
+            side_b_speaker_id=side_b_speaker_id,
+            side_b_speaker_id_idx=side_b_speaker_id_idx,
             da_category=da_category,
             da_category_idx=da_category_idx,
             da_consolidated=da_consolidated,
