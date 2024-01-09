@@ -1,5 +1,5 @@
 from os import path
-from typing import Final, final
+from typing import Final, NamedTuple, Optional, final
 
 import pandas as pd
 import torch
@@ -21,6 +21,23 @@ FEATURES: Final[list[str]] = [
 ]
 
 _MANIFEST_VERSION = 1
+
+
+class ConversationData(NamedTuple):
+    features: Tensor
+    embeddings: Tensor
+    embeddings_segment_len: Tensor
+    num_segments: Tensor
+    gender: list[str]
+    gender_idx: Tensor
+    speaker_id: list[int]
+    speaker_id_idx: Tensor
+    speaker_id_partner: list[int]
+    speaker_id_partner_idx: Tensor
+    da_category: Optional[list[str]] = None
+    da_category_idx: Optional[Tensor] = None
+    da_consolidated: Optional[list[str]] = None
+    da_consolidated_idx: Optional[Tensor] = None
 
 
 @final
@@ -45,7 +62,7 @@ class ConversationDataset(Dataset):
         self.zero_pad: Final[bool] = zero_pad
 
         # Additional configurations based on the dataset itself
-        properties: dict = get_dataset_properties(dataset_dir)
+        properties: Final[dict] = get_dataset_properties(dataset_dir)
         self.has_da: Final[bool] = properties["has_da"]
 
         # If the dataset contains dialogue acts, load the dialogue act index mappings
@@ -60,7 +77,7 @@ class ConversationDataset(Dataset):
     def __len__(self) -> int:
         return len(self.conv_id)
 
-    def __getitem__(self, i: int) -> dict:
+    def __getitem__(self, i: int) -> ConversationData:
         conv_id: Final[int] = self.conv_id[i]
 
         with open(path.join(self.dataset_dir, "segments", f"{conv_id}.json")) as infile:
@@ -70,7 +87,7 @@ class ConversationDataset(Dataset):
             [conv_data[feature] for feature in self.features]
         ).swapaxes(0, 1)
 
-        embeddings: Tensor = torch.load(
+        embeddings: Final[Tensor] = torch.load(
             path.join(self.dataset_dir, "embeddings", f"{conv_id}-embeddings.pt")
         )
         embeddings_len: Tensor = torch.load(
@@ -94,8 +111,13 @@ class ConversationDataset(Dataset):
             [1 if x == "m" else 2 for x in conv_data["gender"]], dtype=torch.long
         )
 
+        da_category: Optional[list[str]] = None
+        da_category_idx: Optional[Tensor] = None
+        da_consolidated: Optional[list[str]] = None
+        da_consolidated_idx: Optional[Tensor] = None
+
         if self.has_da:
-            da_category: list[str | None] = conv_data["da_category"]
+            da_category = conv_data["da_category"]
             da_category_idx = torch.tensor(
                 [
                     self.da_category_idx[x] if x is not None else 0
@@ -104,8 +126,8 @@ class ConversationDataset(Dataset):
                 dtype=torch.long,
             )
 
-            da_consolidated: list[str | None] = conv_data["da_consolidated"]
-            da_consolidated_idx: Tensor = torch.tensor(
+            da_consolidated = conv_data["da_consolidated"]
+            da_consolidated_idx = torch.tensor(
                 [
                     self.da_consolidated_idx[x] if x is not None else 0
                     for x in conv_data["da_consolidated"]
@@ -116,10 +138,10 @@ class ConversationDataset(Dataset):
         if self.zero_pad:
             features = F.pad(features, (0, 0, 1, 0))
 
+            embeddings_len = F.pad(embeddings_len, (1, 0))
+
             gender = [None] + gender
             gender_idx = F.pad(gender_idx, (1, 0))
-
-            embeddings_len = F.pad(embeddings_len, (1, 0))
 
             speaker_id = [None] + speaker_id
             speaker_id_idx = F.pad(speaker_id_idx, (1, 0))
@@ -134,23 +156,19 @@ class ConversationDataset(Dataset):
                 da_consolidated = [None] + da_consolidated
                 da_consolidated_idx = F.pad(da_consolidated_idx, (1, 0))
 
-        output: Final[dict] = {
-            "features": features,
-            "embeddings": embeddings,
-            "embeddings_len": embeddings_len,
-            "num_segments": len(features),
-            "gender": gender,
-            "gender_idx": gender_idx,
-            "speaker_id": speaker_id,
-            "speaker_id_idx": speaker_id_idx,
-            "speaker_id_partner": speaker_id_partner,
-            "speaker_id_partner_idx": speaker_id_partner_idx,
-        }
-
-        if self.has_da:
-            output["da_category"] = da_category
-            output["da_category_idx"] = da_category_idx
-            output["da_consolidated"] = da_consolidated
-            output["da_consolidated_idx"] = da_consolidated_idx
-
-        return output
+        return ConversationData(
+            features=features,
+            embeddings=embeddings,
+            embeddings_segment_len=embeddings_len,
+            num_segments=torch.tensor([len(features)], dtype=torch.long),
+            gender=gender,
+            gender_idx=gender_idx,
+            speaker_id=speaker_id,
+            speaker_id_idx=speaker_id_idx,
+            speaker_id_partner=speaker_id_partner,
+            speaker_id_partner_idx=speaker_id_partner_idx,
+            da_category=da_category,
+            da_category_idx=da_category_idx,
+            da_consolidated=da_consolidated,
+            da_consolidated_idx=da_consolidated_idx,
+        )
