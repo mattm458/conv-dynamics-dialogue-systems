@@ -24,6 +24,7 @@ _MANIFEST_VERSION = 1
 
 
 class ConversationData(NamedTuple):
+    conv_id: int
     features: Tensor
     embeddings: Tensor
     embeddings_segment_len: Tensor
@@ -151,7 +152,8 @@ class ConversationDataset(Dataset):
         if self.zero_pad:
             features = F.pad(features, (0, 0, 1, 0))
 
-            embeddings_len = F.pad(embeddings_len, (1, 0))
+            embeddings = F.pad(embeddings, (0, 0, 0, 0, 1, 0))
+            embeddings_len = F.pad(embeddings_len, (1, 0), value=1)
 
             gender = [None] + gender
             gender_idx = F.pad(gender_idx, (1, 0))
@@ -170,6 +172,7 @@ class ConversationDataset(Dataset):
                 da_consolidated_idx = F.pad(da_consolidated_idx, (1, 0))
 
         return ConversationData(
+            conv_id=conv_id,
             features=features,
             embeddings=embeddings,
             embeddings_segment_len=embeddings_len,

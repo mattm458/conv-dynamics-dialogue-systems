@@ -1,11 +1,11 @@
-from typing import Optional
+from typing import Final, Literal, Optional
 
 import numpy as np
 import torch
 from lightning import pytorch as pl
 from matplotlib import pyplot as plt
 from prosody_modeling.model.prosody_model import ProsodyModel
-from torch import Tensor, nn
+from torch import Generator, Tensor, nn
 from torch.nn import functional as F
 
 from cdmodel.model.components import (
@@ -20,8 +20,8 @@ from cdmodel.model.components import (
 )
 from cdmodel.model.util import timestep_split
 
-US = torch.tensor([0.0, 1.0])
-THEM = torch.tensor([1.0, 0.0])
+US: Final[int] = 2
+THEM: Final[int] = 1
 
 
 def save_figure_to_numpy(fig):
@@ -33,7 +33,7 @@ def save_figure_to_numpy(fig):
 class SequentialConversationModel(pl.LightningModule):
     def __init__(
         self,
-        feature_names: list[str],
+        features: list[str],
         embedding_dim: int,
         embedding_encoder_out_dim: int,
         embedding_encoder_num_layers: int,
@@ -47,54 +47,75 @@ class SequentialConversationModel(pl.LightningModule):
         decoder_num_layers: int,
         decoder_dropout: float,
         num_decoders: int,
-        attention_style: str,
+        attention_style: Literal["dual_combined", "dual", "single", None],
         lr: float,
-        gender: bool = False,
-        da: bool = False,
+        speaker_role_encoding: Literal[None, "one_hot", "embedding"] = None,
+        gender_encoding: Literal[None, "one_hot", "embedding"] = None,
+        gender_dim: Optional[int] = None,
+        da_encoding: Literal[None, "one_hot", "embedding"] = None,
+        da_type: Literal[None, "da_category", "da_consolidated"] = None,
+        da_dim: Optional[int] = None,
         speaker_identity: bool = False,
         speaker_identity_count: Optional[int] = None,  # 520,
         speaker_identity_dim: Optional[int] = None,  # 32,
         speaker_identity_partner: bool = False,
         speaker_identity_encoder: bool = False,
-        spectrogram_agent_encoder: bool = False,
-        spectrogram_partner_encoder: bool = False,
-        spectrogram_agent_encoder_out_dim: Optional[int] = None,
+        speaker_agent_role: Literal["first", "second", "random"] = "second",
+        zero_pad: bool = False,
     ):
         super().__init__()
 
+        if gender_encoding is not None and gender_dim is None:
+            raise Exception(
+                "If the model uses a representation of gender, you must specify gender_dim!"
+            )
+
+        if da_encoding is not None and (da_type is None or da_dim is None):
+            raise Exception(
+                "If the model uses a representation of dialogue acts, you must specify da_type and da_dim!"
+            )
+
         self.save_hyperparameters()
 
-        self.validation_outputs: list[Tensor] = []
-        self.validation_attention_ours: list[Tensor] = []
-        self.validation_attention_ours_history_mask: list[Tensor] = []
-        self.validation_attention_theirs: list[Tensor] = []
-        self.validation_attention_theirs_history_mask: list[Tensor] = []
-        self.validation_data: list[tuple[Tensor, Tensor]] = []
+        self.features: Final[list[str]] = features
+        self.num_features: Final[int] = len(features)
+        self.speaker_role_encoding: Final[
+            Literal[None, "one_hot", "embedding"]
+        ] = speaker_role_encoding
+        self.gender_encoding: Final[
+            Literal[None, "one_hot", "embedding"]
+        ] = gender_encoding
+        self.gender_dim: Final[int] = gender_dim
+        self.da_encoding: Final[Literal[None, "one_hot", "embedding"]] = da_encoding
 
-        self.gender = gender
-        self.da = da
-        self.US = None
-        self.THEM = None
+        self.validation_outputs: Final[list[Tensor]] = []
+        self.validation_attention_ours: Final[list[Tensor]] = []
+        self.validation_attention_ours_history_mask: Final[list[Tensor]] = []
+        self.validation_attention_theirs: Final[list[Tensor]] = []
+        self.validation_attention_theirs_history_mask: Final[list[Tensor]] = []
+        self.validation_data: Final[list[tuple[Tensor, Tensor]]] = []
 
-        self.num_features = 7
-        self.feature_names = feature_names
-        self.lr = lr
+        self.lr: Final[float] = lr
         self.attention_style = attention_style
 
         self.speaker_identity = speaker_identity
         self.speaker_identity_partner = speaker_identity_partner
         self.speaker_identity_encoder = speaker_identity_encoder
 
-        self.spectrogram_agent_encoder = spectrogram_agent_encoder
-        self.spectrogram_partner_encoder = spectrogram_partner_encoder
+        self.speaker_agent_role: Final[
+            Literal["first", "second", "random"]
+        ] = speaker_agent_role
+        self.zero_pad: Final[bool] = zero_pad
 
         # Set up dimensions
         # =====================
-        # Encoder inputs
-        encoder_in_dim = len(feature_names) + embedding_encoder_out_dim + 2
+        # Encoder inputs contain features from the previous segment, embeddings from the
+        # previous segment, and a one-hot encoded representation of the previous turn's
+        # speaker role (agent or human).
+        encoder_in_dim: Final[int] = self.num_features + embedding_encoder_out_dim + 2
 
         # History: encoder outputs at each timestep
-        history_dim = encoder_hidden_dim
+        history_dim: int = encoder_hidden_dim
         # If we're using speaker identities, they are concatenated with the history
         if speaker_identity and speaker_identity_dim:
             history_dim += speaker_identity_dim
@@ -172,7 +193,7 @@ class SequentialConversationModel(pl.LightningModule):
                     context_dim=att_context_dim,
                     att_dim=decoder_att_dim,
                 )
-            elif attention_style == "noop":
+            elif attention_style is None:
                 attention: AttentionModule = NoopAttention()
             else:
                 raise Exception(f"Unrecognized attention style '{attention_style}'")
@@ -196,68 +217,43 @@ class SequentialConversationModel(pl.LightningModule):
                 )
             )
 
-        # if spectrogram_agent_encoder or spectrogram_partner_encoder:
-        #     if not spectrogram_agent_encoder_out_dim:
-        #         raise Exception(
-        #             "If using an agent spectrogram encoder, spectrogram_agent_encoder_out_dim is required!"
-        #         )
-
-        #     if spectrogram_agent_encoder:
-        #         # decoder_attention_context_dim += spectrogram_agent_encoder_out_dim
-        #         decoder_in_dim += spectrogram_agent_encoder_out_dim
-        #     if spectrogram_partner_encoder:
-        #         # decoder_attention_context_dim += spectrogram_agent_encoder_out_dim
-        #         decoder_in_dim += spectrogram_agent_encoder_out_dim
-
-        #     self.spectrogram_encoder = ProsodyModel(
-        #         conv_out_dim=2560,
-        #         rnn_in_dim=768,
-        #         use_deltas=True,
-        #         rnn_layers=2,
-        #         rnn_dropout=0.5,
-        #         num_features=spectrogram_agent_encoder_out_dim,
-        #     )
-
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.lr)
 
-    def validation_step(self, batch, batch_idx):
-        features = batch["features"]
-        speakers = batch["speakers"]
-        embeddings = batch["embeddings"]
-        embeddings_len = batch["embeddings_len"]
-        predict = batch["predict"]
-        conv_len = batch["conv_len"]
+    def validation_step(self, batch: BatchedConversationData, batch_idx: int):
+        # Establish the speaker role
+        if self.speaker_agent_role == "first":
+            agent_segment_idx: int = int(self.zero_pad)
+            agent_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx]
+            partner_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx + 1]
+        elif self.speaker_agent_role == "second":
+            agent_segment_idx: int = int(self.zero_pad) + 1
+            agent_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx]
+            partner_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx - 1]
+        elif self.speaker_agent_role == "random":
+            generator: Final[Generator] = torch.random.manual_seed(batch.conv_id[0])
+            agent_idx_bool: Final[Tensor] = (
+                torch.rand(batch.speaker_id_idx.shape[0], generator=generator) < 0.5
+            )
+            partner_idx_bool: Final[Tensor] = ~agent_idx_bool
+            agent_segment_idxs: Tensor = agent_idx_bool.type(torch.long)
+            partner_segment_idxs: Tensor = partner_idx_bool.type(torch.long)
+            if self.zero_pad:
+                agent_segment_idxs += 1
+                partner_segment_idxs += 1
+            agent_idx = torch.gather(
+                batch.speaker_id_idx, 1, agent_segment_idxs.unsqueeze(1)
+            ).squeeze(1)
+            partner_idx = torch.gather(
+                batch.speaker_id_idx, 1, partner_segment_idxs.unsqueeze(1)
+            ).squeeze(1)
 
-        y = batch["y"]
-        y_len = batch["y_len"]
-
-        genders = None
-        if self.gender:
-            genders = batch["gender"]
-
-        speaker_identities = None
-        if self.speaker_identity:
-            speaker_identities = batch["speaker_identity"]
-
-        partner_identities = None
-        if self.speaker_identity_partner:
-            partner_identities = batch["partner_identity"]
-
-        spectrogram_agent = None
-        spectrogram_agent_len = None
-        if self.spectrogram_agent_encoder:
-            spectrogram_agent = batch["spectrogram_agent"]
-            spectrogram_agent_len = batch["spectrogram_agent_len"]
-
-        spectrogram_partner = None
-        spectrogram_partner_len = None
-        if self.spectrogram_partner_encoder:
-            spectrogram_partner = batch["spectrogram_partner"]
-            spectrogram_partner_len = batch["spectrogram_partner_len"]
-
-        batch_size = features.shape[0]
-        device = features.device
+        is_agent: Final[Tensor] = batch.speaker_id_idx.eq(agent_idx.unsqueeze(1))
+        is_partner: Final[Tensor] = batch.speaker_id_idx.eq(partner_idx.unsqueeze(1))
+        speaker_role: Final[Tensor] = torch.zeros_like(batch.speaker_id_idx)
+        speaker_role[is_agent] = US
+        speaker_role[is_partner] = THEM
+        predict = (speaker_role == US)[:, 1:]
 
         (
             our_features_pred,
@@ -266,37 +262,31 @@ class SequentialConversationModel(pl.LightningModule):
             their_scores_all,
             their_history_mask,
         ) = self(
-            features,
-            speakers,
-            embeddings,
-            embeddings_len,
-            predict,
-            conv_len,
-            genders=genders,
-            speaker_identities=speaker_identities,
-            partner_identities=partner_identities,
-            agent_spectrogram=spectrogram_agent,
-            agent_spectrogram_len=spectrogram_agent_len,
-            partner_spectrogram=spectrogram_partner,
-            partner_spectrogram_len=spectrogram_partner_len,
+            features=batch.features,
+            speakers=speaker_role,
+            embeddings=batch.embeddings,
+            embeddings_len=batch.embeddings_segment_len,
+            predict=predict,
+            conv_len=batch.num_segments,
+            genders=batch.gender_idx,
         )
 
-        y_mask = torch.arange(y.shape[1], device=device).unsqueeze(0)
-        y_mask = y_mask.repeat(batch_size, 1)
-        y_mask = y_mask < y_len.unsqueeze(1)
+        y = batch.features[:, 1:]
+        y_len = batch.num_segments - 1
+        batch_size = batch.features.shape[0]
 
-        loss = F.mse_loss(our_features_pred[predict], y[y_mask])
-        loss_l1 = F.smooth_l1_loss(our_features_pred[predict], y[y_mask])
+        loss = F.mse_loss(our_features_pred[predict], y[predict])
+        loss_l1 = F.smooth_l1_loss(our_features_pred[predict], y[predict])
 
         self.log("validation_loss", loss, on_epoch=True, on_step=False, prog_bar=True)
         self.log("validation_loss_l1", loss_l1, on_epoch=True, on_step=False)
 
-        for feature_idx, feature_name in enumerate(self.feature_names):
+        for feature_idx, feature_name in enumerate(self.features):
             self.log(
                 f"validation_loss_l1_{feature_name}",
                 F.smooth_l1_loss(
                     our_features_pred[predict][:, feature_idx],
-                    y[y_mask][:, feature_idx],
+                    y[predict][:, feature_idx],
                 ),
                 on_epoch=True,
                 on_step=False,
@@ -357,7 +347,7 @@ class SequentialConversationModel(pl.LightningModule):
         y_len = batch["y_len"]
 
         genders = None
-        if self.gender:
+        if self.gender_encoding:
             genders = batch["gender"]
 
         speaker_identities = None
@@ -409,7 +399,7 @@ class SequentialConversationModel(pl.LightningModule):
         self.log(
             "training_loss", loss.detach(), on_epoch=True, on_step=True, prog_bar=True
         )
-        for feature_idx, feature_name in enumerate(self.feature_names):
+        for feature_idx, feature_name in enumerate(self.features):
             self.log(
                 f"training_loss_l1_{feature_name}",
                 F.smooth_l1_loss(
@@ -453,6 +443,17 @@ class SequentialConversationModel(pl.LightningModule):
             torch.split(embeddings_encoded, conv_len.tolist()), batch_first=True
         )
 
+        # Encode gender
+        if self.gender_encoding == "one_hot":
+            gender_encoded: Final[Tensor] = F.one_hot(
+                genders, num_classes=self.gender_dim + 1
+            )[:, :, 1:]
+
+        if self.speaker_role_encoding == "one_hot":
+            speaker_role_encoded: Final[Tensor] = F.one_hot(speakers, num_classes=3)[
+                :, :, 1:
+            ]
+
         if self.speaker_identity:
             speaker_identities = self.speaker_identity_embedding(speaker_identities)
             speaker_identities = timestep_split(speaker_identities)
@@ -461,23 +462,17 @@ class SequentialConversationModel(pl.LightningModule):
                 partner_identities = self.speaker_identity_embedding(partner_identities)
                 partner_identities = timestep_split(partner_identities)
 
-        # Create masks that represent our and their timesteps in the history
-        if self.US is None:
-            self.US = US.to(device)
-        if self.THEM is None:
-            self.THEM = THEM.to(device)
-
-        our_history_mask = (speakers == self.US).all(dim=-1)
-        their_history_mask = (speakers == self.THEM).all(dim=-1)
+        our_history_mask = (speakers.unsqueeze(2) == US).all(dim=-1)
+        their_history_mask = (speakers.unsqueeze(2) == THEM).all(dim=-1)
 
         # For efficiency, preemptively split some inputs by timestep
         features = timestep_split(features)
         predict = timestep_split(predict)
-        speakers = timestep_split(speakers)
+        speakers_timesteps = timestep_split(speaker_role_encoded)
         embeddings_encoded = timestep_split(embeddings_encoded)
 
-        if self.gender:
-            genders = timestep_split(genders)
+        if self.gender_encoding:
+            gender_timesteps = timestep_split(gender_encoded)
 
         # Create initial zero hidden states for the encoder and decoder(s)
         encoder_hidden = self.encoder.get_hidden(batch_size=batch_size, device=device)
@@ -494,20 +489,6 @@ class SequentialConversationModel(pl.LightningModule):
         # Placeholders to contain predicted features carried over from the previous timestep
         prev_features = torch.zeros((batch_size, self.num_features), device=device)
         prev_predict = torch.zeros((batch_size,), device=device, dtype=torch.bool)
-
-        spectrogram_agent_encoded = None
-        if self.spectrogram_agent_encoder:
-            spectrogram_agent_encoded, _, _, _ = self.spectrogram_encoder(
-                agent_spectrogram, agent_spectrogram_len
-            )
-            spectrogram_agent_encoded = F.tanh(spectrogram_agent_encoded)
-
-        spectrogram_partner_encoded = None
-        if self.spectrogram_partner_encoder:
-            spectrogram_partner_encoded, _, _, _ = self.spectrogram_encoder(
-                partner_spectrogram, partner_spectrogram_len
-            )
-            spectrogram_partner_encoded = F.tanh(spectrogram_partner_encoded)
 
         # Iterate through the entire conversation
         for i in range(num_timesteps - 1):
@@ -526,11 +507,11 @@ class SequentialConversationModel(pl.LightningModule):
                 .type(features_timestep.dtype)
             )
 
-            speaker_timestep = speakers[i]
+            speaker_timestep = speakers_timesteps[i]
 
-            if self.gender:
-                gender_timestep = genders[i]
-                gender_next = genders[i + 1]
+            if self.gender_encoding:
+                gender_timestep = gender_timesteps[i]
+                gender_next = gender_timesteps[i + 1]
 
             if self.speaker_identity:
                 speaker_identity_timestep = speaker_identities[0]
@@ -553,7 +534,7 @@ class SequentialConversationModel(pl.LightningModule):
                 speaker_timestep,
             ]
 
-            if self.gender:
+            if self.gender_encoding:
                 encoder_in.append(gender_timestep)
 
             if self.speaker_identity and self.speaker_identity_encoder:
@@ -579,27 +560,12 @@ class SequentialConversationModel(pl.LightningModule):
             embeddings_encoded_timestep_next_pred = embeddings_encoded_timestep_next
 
             # Get the speaker that the decoder is about to receive
-            speaker_next = speakers[i + 1]
+            speaker_next = speakers_timesteps[i + 1]
 
             # Assemble the attention context vector for each of the decoder attention layer(s)
             att_contexts = []
             for h in decoder_hidden:
                 att_contexts_arr = [h[-1], embeddings_encoded_timestep_next_pred]
-
-                # if self.gender:
-                #     att_contexts_arr.append(gender_next)
-                # if self.speaker_identity:
-                #     att_contexts_arr.append(speaker_identity_next)
-
-                #     if self.speaker_identity_partner:
-                #         att_contexts_arr.append(partner_identity_next)
-
-                # if self.spectrogram_agent_encoder:
-                #     att_contexts_arr.append(spectrogram_agent_encoded)
-
-                # if self.spectrogram_partner_encoder:
-                #     att_contexts_arr.append(spectrogram_partner_encoded)
-
                 att_contexts.append(torch.cat(att_contexts_arr, dim=-1))
 
             # Get our/their history masks for the timesteps we're about to predict
@@ -640,19 +606,13 @@ class SequentialConversationModel(pl.LightningModule):
                     speaker_next,
                 ]
 
-                if self.gender:
+                if self.gender_encoding:
                     decoder_in_arr.append(gender_next)
 
                 # if self.speaker_identity:
                 #     decoder_in_arr.append(speaker_identity_next)
                 #     if self.speaker_identity_partner:
                 #         decoder_in_arr.append(partner_identity_next)
-
-                # if self.spectrogram_agent_encoder:
-                #     decoder_in_arr.append(spectrogram_agent_encoded)
-
-                # if self.spectrogram_partner_encoder:
-                #     decoder_in_arr.append(spectrogram_partner_encoded)
 
                 decoder_in = torch.cat(decoder_in_arr, dim=-1)
 

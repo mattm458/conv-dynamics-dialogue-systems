@@ -8,6 +8,7 @@ from cdmodel.data.dataset_manifest_1 import ConversationData
 
 
 class BatchedConversationData(NamedTuple):
+    conv_id: list[int]
     features: Tensor
     embeddings: Tensor
     embeddings_segment_len: Tensor
@@ -29,6 +30,7 @@ class BatchedConversationData(NamedTuple):
 
 
 def collate_fn(batches: list[ConversationData]) -> ConversationData:
+    conv_id_all: Final[list[int]] = []
     features_all: Final[list[Tensor]] = []
     embeddings_all: Final[list[Tensor]] = []
     embeddings_segment_len_all: Final[list[Tensor]] = []
@@ -55,6 +57,7 @@ def collate_fn(batches: list[ConversationData]) -> ConversationData:
     longest_embedding_segment: int = 0
 
     for batch in batches:
+        conv_id_all.append(batch.conv_id)
         features_all.append(batch.features)
         embeddings_all.append(batch.embeddings)
         embeddings_segment_len_all.append(batch.embeddings_segment_len)
@@ -80,6 +83,8 @@ def collate_fn(batches: list[ConversationData]) -> ConversationData:
         max_embeddings_len: int = batch.embeddings_segment_len.max().item()
         if longest_embedding_segment < max_embeddings_len:
             longest_embedding_segment = max_embeddings_len
+
+    conv_id: Final[list[int]] = conv_id_all
 
     features: Final[Tensor] = nn.utils.rnn.pad_sequence(features_all, batch_first=True)
 
@@ -139,6 +144,7 @@ def collate_fn(batches: list[ConversationData]) -> ConversationData:
         )
 
     return BatchedConversationData(
+        conv_id=conv_id,
         features=features,
         embeddings=embeddings,
         embeddings_segment_len=embeddings_segment_len,

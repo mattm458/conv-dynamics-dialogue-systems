@@ -7,7 +7,7 @@ from torch import Tensor, nn
 from cdmodel.model.util import lengths_to_mask
 
 
-class Encoder(torch.jit.ScriptModule):
+class Encoder(nn.Module):
     def __init__(self, in_dim: int, hidden_dim: int, num_layers: int, dropout: float):
         super().__init__()
 
@@ -27,7 +27,6 @@ class Encoder(torch.jit.ScriptModule):
             for x in range(self.num_layers)
         ]
 
-    @torch.jit.script_method
     def forward(
         self,
         encoder_input: Tensor,
@@ -202,7 +201,7 @@ class NoopAttention(AttentionModule):
         return history[:, -1], (None, None, None)
 
 
-class EmbeddingEncoder(torch.jit.ScriptModule):
+class EmbeddingEncoder(nn.Module):
     def __init__(
         self,
         embedding_dim: int,
@@ -236,7 +235,6 @@ class EmbeddingEncoder(torch.jit.ScriptModule):
             att_dim=attention_dim,
         )
 
-    @torch.jit.script_method
     def forward(self, encoder_in: Tensor, lengths: Tensor) -> Tuple[Tensor, Tensor]:
         batch_size = encoder_in.shape[0]
 
@@ -265,7 +263,7 @@ class EmbeddingEncoder(torch.jit.ScriptModule):
         )
 
 
-class Decoder(torch.jit.ScriptModule):
+class Decoder(nn.Module):
     def __init__(
         self,
         decoder_in_dim: int,
@@ -301,7 +299,6 @@ class Decoder(torch.jit.ScriptModule):
             for x in range(self.num_layers)
         ]
 
-    @torch.jit.script_method
     def forward(
         self,
         encoded: Tensor,
