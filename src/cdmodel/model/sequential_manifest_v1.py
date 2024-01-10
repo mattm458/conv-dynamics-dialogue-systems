@@ -8,6 +8,7 @@ from prosody_modeling.model.prosody_model import ProsodyModel
 from torch import Generator, Tensor, nn
 from torch.nn import functional as F
 
+from cdmodel.data.dataloader_manifest_1 import BatchedConversationData
 from cdmodel.model.components import (
     AttentionModule,
     Decoder,
@@ -322,12 +323,12 @@ class SequentialConversationModel(pl.LightningModule):
         for name, parameter in self.named_parameters():
             self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
-        if self.speaker_identity:
-            self.logger.experiment.add_embedding(
-                self.speaker_identity_embedding.weight,
-                tag="Speaker identity",
-                global_step=self.global_step,
-            )
+        # if self.speaker_identity:
+        #     self.logger.experiment.add_embedding(
+        #         self.speaker_identity_embedding.weight,
+        #         tag="Speaker identity",
+        #         global_step=self.global_step,
+        #     )
 
     def training_step(self, batch, batch_idx):
         # Establish the speaker role
@@ -445,13 +446,13 @@ class SequentialConversationModel(pl.LightningModule):
                 :, :, 1:
             ]
 
-        if self.speaker_identity:
-            speaker_identities = self.speaker_identity_embedding(speaker_identities)
-            speaker_identities = timestep_split(speaker_identities)
+        # if self.speaker_identity:
+        #     speaker_identities = self.speaker_identity_embedding(speaker_identities)
+        #     speaker_identities = timestep_split(speaker_identities)
 
-            if self.speaker_identity_partner:
-                partner_identities = self.speaker_identity_embedding(partner_identities)
-                partner_identities = timestep_split(partner_identities)
+        #     if self.speaker_identity_partner:
+        #         partner_identities = self.speaker_identity_embedding(partner_identities)
+        #         partner_identities = timestep_split(partner_identities)
 
         our_history_mask = (speakers.unsqueeze(2) == US).all(dim=-1)
         their_history_mask = (speakers.unsqueeze(2) == THEM).all(dim=-1)
@@ -504,13 +505,13 @@ class SequentialConversationModel(pl.LightningModule):
                 gender_timestep = gender_timesteps[i]
                 gender_next = gender_timesteps[i + 1]
 
-            if self.speaker_identity:
-                speaker_identity_timestep = speaker_identities[0]
-                speaker_identity_next = speaker_identities[1]
+            # if self.speaker_identity:
+            #     speaker_identity_timestep = speaker_identities[0]
+            #     speaker_identity_next = speaker_identities[1]
 
-                if self.speaker_identity_partner:
-                    partner_identity_timestep = partner_identities[0]
-                    partner_identity_next = partner_identities[1]
+            #     if self.speaker_identity_partner:
+            #         partner_identity_timestep = partner_identities[0]
+            #         partner_identity_next = partner_identities[1]
 
             # Get some timestep-specific data from the input
             embeddings_encoded_timestep = embeddings_encoded[i]
@@ -528,8 +529,8 @@ class SequentialConversationModel(pl.LightningModule):
             if self.gender_encoding:
                 encoder_in.append(gender_timestep)
 
-            if self.speaker_identity and self.speaker_identity_encoder:
-                encoder_in.append(speaker_identity_timestep)
+            # if self.speaker_identity and self.speaker_identity_encoder:
+            #     encoder_in.append(speaker_identity_timestep)
 
             encoder_in = torch.cat(encoder_in, dim=-1)
 
@@ -537,8 +538,8 @@ class SequentialConversationModel(pl.LightningModule):
             encoded, encoder_hidden = self.encoder(encoder_in, encoder_hidden)
 
             encoded_list = [encoded]
-            if self.speaker_identity:
-                encoded_list.append(speaker_identity_timestep)
+            # if self.speaker_identity:
+            #     encoded_list.append(speaker_identity_timestep)
 
             encoded = torch.concat(encoded_list, dim=1)
 
