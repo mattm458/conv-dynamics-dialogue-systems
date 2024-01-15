@@ -21,12 +21,6 @@ US: Final[int] = 2
 THEM: Final[int] = 1
 
 
-def save_figure_to_numpy(fig):
-    data = np.frombuffer(fig.canvas.buffer_rgba(), dtype=np.uint8)
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (4,))[:, :, :3]
-    return data
-
-
 class SequentialConversationModel(pl.LightningModule):
     def __init__(
         self,
