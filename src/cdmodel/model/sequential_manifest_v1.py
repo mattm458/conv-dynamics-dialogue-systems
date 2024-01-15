@@ -214,15 +214,19 @@ class SequentialConversationModel(pl.LightningModule):
             generator = torch.Generator(device=self.device)
             generator.manual_seed(batch.conv_id[0])
 
-        agent_idx, partner_idx = get_role_identity_idx(
+        agent_identity_idx, partner_identity_idx = get_role_identity_idx(
             speaker_identity_idx=batch.speaker_id_idx,
             role_assignment=self.speaker_agent_role,
             zero_pad=self.zero_pad,
             generator=generator,
         )
 
-        is_agent: Final[Tensor] = batch.speaker_id_idx.eq(agent_idx.unsqueeze(1))
-        is_partner: Final[Tensor] = batch.speaker_id_idx.eq(partner_idx.unsqueeze(1))
+        is_agent: Final[Tensor] = batch.speaker_id_idx.eq(
+            agent_identity_idx.unsqueeze(1)
+        )
+        is_partner: Final[Tensor] = batch.speaker_id_idx.eq(
+            partner_identity_idx.unsqueeze(1)
+        )
         speaker_role: Final[Tensor] = torch.zeros_like(batch.speaker_id_idx)
         speaker_role[is_agent] = US
         speaker_role[is_partner] = THEM
@@ -306,15 +310,19 @@ class SequentialConversationModel(pl.LightningModule):
         if self.speaker_agent_role == "random":
             generator = torch.Generator(device=self.device)
 
-        agent_idx, partner_idx = get_role_identity_idx(
+        agent_identity_idx, partner_identity_idx = get_role_identity_idx(
             speaker_identity_idx=batch.speaker_id_idx,
             role_assignment=self.speaker_agent_role,
             zero_pad=self.zero_pad,
             generator=generator,
         )
 
-        is_agent: Final[Tensor] = batch.speaker_id_idx.eq(agent_idx.unsqueeze(1))
-        is_partner: Final[Tensor] = batch.speaker_id_idx.eq(partner_idx.unsqueeze(1))
+        is_agent: Final[Tensor] = batch.speaker_id_idx.eq(
+            agent_identity_idx.unsqueeze(1)
+        )
+        is_partner: Final[Tensor] = batch.speaker_id_idx.eq(
+            partner_identity_idx.unsqueeze(1)
+        )
         speaker_role: Final[Tensor] = torch.zeros_like(batch.speaker_id_idx)
         speaker_role[is_agent] = US
         speaker_role[is_partner] = THEM
