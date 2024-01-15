@@ -420,7 +420,7 @@ class SequentialConversationModel(pl.LightningModule):
         # Get some basic information from the input tensors
         batch_size = features.shape[0]
         num_timesteps = features.shape[1]
-        device = wfeatures.device
+        device = features.device
 
         # Bulk encode the texts from all turns, then break them out into appropriate batches
         embeddings_encoded, _ = self.embedding_encoder(embeddings, embeddings_len)
