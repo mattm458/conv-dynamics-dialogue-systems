@@ -3,6 +3,8 @@ from typing import Final, Literal, Optional
 import torch
 from torch import Generator, Tensor
 
+from cdmodel.consts import SPEAKER_ROLE_AGENT_IDX, SPEAKER_ROLE_PARTNER_IDX
+
 
 def lengths_to_mask(lengths: Tensor, max_size: int) -> Tensor:
     mask = torch.arange(max_size, device=lengths.device)
@@ -108,3 +110,39 @@ def get_role_identity_idx(
         )
 
     return agent_identity_idx, partner_identity_idx
+
+
+def get_speaker_role_idx(
+    speaker_identity_idx: Tensor,
+    agent_identity_idx: Tensor,
+    partner_identity_idx: Tensor,
+) -> Tensor:
+    """
+    Generate a tensor of speaker role indices from a tensor of speaker identity indices,
+    plus separate tensors indicating which speaker identities are assuming the role of agent
+    and which speaker identities are assuming the role of partner.
+
+    Parameters
+    ----------
+    speaker_identity_idx : Tensor
+        A tensor of batched segmented speaker identity indices. It must have the
+        dimensions (batch, segments).
+    agent_identity_idx : Tensor
+        The speaker identity indidices of the agents in each batch.
+    partner_identity_idx : Tensor
+        The speaker identity indidices of the partners in each batch.
+
+    Returns
+    -------
+    Tensor
+        A tensor of batched segmented speaker role indices with the dimensions (batch, segments).
+    """
+    is_agent: Final[Tensor] = speaker_identity_idx.eq(agent_identity_idx.unsqueeze(1))
+    is_partner: Final[Tensor] = speaker_identity_idx.eq(
+        partner_identity_idx.unsqueeze(1)
+    )
+    speaker_role_idx: Final[Tensor] = torch.zeros_like(speaker_identity_idx)
+    speaker_role_idx[is_agent] = SPEAKER_ROLE_AGENT_IDX
+    speaker_role_idx[is_partner] = SPEAKER_ROLE_PARTNER_IDX
+
+    return speaker_role_idx

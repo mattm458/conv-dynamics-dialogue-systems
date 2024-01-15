@@ -6,6 +6,7 @@ from lightning import pytorch as pl
 from torch import Generator, Tensor, nn
 from torch.nn import functional as F
 
+from cdmodel.consts import SPEAKER_ROLE_AGENT_IDX, SPEAKER_ROLE_PARTNER_IDX
 from cdmodel.data.dataloader_manifest_1 import BatchedConversationData
 from cdmodel.model.components import (
     Decoder,
@@ -15,8 +16,11 @@ from cdmodel.model.components import (
     NoopAttention,
     SingleAttention,
 )
-from cdmodel.model.util import get_role_identity_idx, timestep_split
-from cdmodel.consts import SPEAKER_ROLE_AGENT_IDX, SPEAKER_ROLE_PARTNER_IDX
+from cdmodel.model.util import (
+    get_role_identity_idx,
+    get_speaker_role_idx,
+    timestep_split,
+)
 
 
 class SequentialConversationModel(pl.LightningModule):
@@ -219,16 +223,13 @@ class SequentialConversationModel(pl.LightningModule):
             generator=generator,
         )
 
-        is_agent: Final[Tensor] = batch.speaker_id_idx.eq(
-            agent_identity_idx.unsqueeze(1)
+        speaker_role_idx: Final[Tensor] = get_speaker_role_idx(
+            speaker_identity_idx=batch.speaker_id_idx,
+            agent_identity_idx=agent_identity_idx,
+            partner_identity_idx=partner_identity_idx,
         )
-        is_partner: Final[Tensor] = batch.speaker_id_idx.eq(
-            partner_identity_idx.unsqueeze(1)
-        )
-        speaker_role: Final[Tensor] = torch.zeros_like(batch.speaker_id_idx)
-        speaker_role[is_agent] = SPEAKER_ROLE_AGENT_IDX
-        speaker_role[is_partner] = SPEAKER_ROLE_PARTNER_IDX
-        predict = (speaker_role == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
+
+        predict = (speaker_role_idx == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
 
         (
             our_features_pred,
@@ -238,7 +239,7 @@ class SequentialConversationModel(pl.LightningModule):
             their_history_mask,
         ) = self(
             features=batch.features,
-            speakers=speaker_role,
+            speakers=speaker_role_idx,
             embeddings=batch.embeddings,
             embeddings_len=batch.embeddings_segment_len,
             predict=predict,
@@ -315,16 +316,12 @@ class SequentialConversationModel(pl.LightningModule):
             generator=generator,
         )
 
-        is_agent: Final[Tensor] = batch.speaker_id_idx.eq(
-            agent_identity_idx.unsqueeze(1)
+        speaker_role_idx: Final[Tensor] = get_speaker_role_idx(
+            speaker_identity_idx=batch.speaker_id_idx,
+            agent_identity_idx=agent_identity_idx,
+            partner_identity_idx=partner_identity_idx,
         )
-        is_partner: Final[Tensor] = batch.speaker_id_idx.eq(
-            partner_identity_idx.unsqueeze(1)
-        )
-        speaker_role: Final[Tensor] = torch.zeros_like(batch.speaker_id_idx)
-        speaker_role[is_agent] = SPEAKER_ROLE_AGENT_IDX
-        speaker_role[is_partner] = SPEAKER_ROLE_PARTNER_IDX
-        predict = (speaker_role == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
+        predict = (speaker_role_idx == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
 
         (
             our_features_pred,
@@ -334,7 +331,7 @@ class SequentialConversationModel(pl.LightningModule):
             their_history_mask,
         ) = self(
             features=batch.features,
-            speakers=speaker_role,
+            speakers=speaker_role_idx,
             embeddings=batch.embeddings,
             embeddings_len=batch.embeddings_segment_len,
             predict=predict,
