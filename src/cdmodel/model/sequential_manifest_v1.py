@@ -3,17 +3,13 @@ from typing import Final, Literal, Optional
 import numpy as np
 import torch
 from lightning import pytorch as pl
-from matplotlib import pyplot as plt
-from prosody_modeling.model.prosody_model import ProsodyModel
 from torch import Generator, Tensor, nn
 from torch.nn import functional as F
 
 from cdmodel.data.dataloader_manifest_1 import BatchedConversationData
 from cdmodel.model.components import (
-    AttentionModule,
     Decoder,
     DualAttention,
-    DualCombinedAttention,
     EmbeddingEncoder,
     Encoder,
     NoopAttention,
@@ -91,50 +87,39 @@ class SequentialConversationModel(pl.LightningModule):
         self.validation_data: Final[list[tuple[Tensor, Tensor]]] = []
 
         self.lr: Final[float] = lr
-        self.attention_style = attention_style
-
-        # self.speaker_identity = speaker_identity
-        # self.speaker_identity_partner = speaker_identity_partner
-        # self.speaker_identity_encoder = speaker_identity_encoder
+        self.attention_style: Final[
+            Literal["dual_combined", "dual", "single", None]
+        ] = attention_style
 
         self.speaker_agent_role: Final[
             Literal["first", "second", "random"]
         ] = speaker_agent_role
         self.zero_pad: Final[bool] = zero_pad
 
-        # Set up dimensions
+        # Embedding Encoder
         # =====================
-        # Encoder inputs contain features from the previous segment, embeddings from the
-        # previous segment, and a one-hot encoded representation of the previous turn's
-        # speaker role (agent or human).
-        encoder_in_dim: Final[int] = self.num_features + embedding_encoder_out_dim + 2
-
-        # History: encoder outputs at each timestep
-        history_dim: int = encoder_hidden_dim
-        # If we're using speaker identities, they are concatenated with the history
-        # if speaker_identity and speaker_identity_dim:
-        #     history_dim += speaker_identity_dim
-
-        # Attention context dim: consists of the decoder hidden state,
-        # plus encoded embeddings for the next timestep
-        att_context_dim = embedding_encoder_att_dim + decoder_hidden_dim
-
-        # Decoder input: Decoder input consits of the following components:
-        #   - Attention-summarized historical input, equal to history_dim
-        #   - Encoded embeddings for the next timestep
-        #   - Speaker role for the next timestep
-        att_multiplier = 2 if attention_style == "dual" else 1
-        decoder_in_dim = embedding_encoder_att_dim + (history_dim * att_multiplier) + 2
-
-        # Encoders
-        # =====================
-        # Embedding encoder for textual data
+        # The embedding encoder encodes textual data associated with each conversational
+        # segment. At each segment, it accepts a sequence of word embeddings and outputs
+        # a vector of size `embedding_encoder_out_dim`.
         self.embedding_encoder = EmbeddingEncoder(
             embedding_dim=embedding_dim,
             encoder_out_dim=embedding_encoder_out_dim,
             encoder_num_layers=embedding_encoder_num_layers,
             encoder_dropout=embedding_encoder_dropout,
             attention_dim=embedding_encoder_att_dim,
+        )
+
+        # Segment encoder
+        # =====================
+        # The segment encoder outputs a representation of each conversational segment. The
+        # encoder input includes speech features extracted from the segment, an encoded
+        # representation of the words spoken in the segment, and a one-hot vector of
+        # the speaker role. Each encoded segment is kept by appending it to the conversation
+        # history.
+        encoder_in_dim: Final[int] = (
+            self.num_features  # The number of speech features the model is predicting
+            + embedding_encoder_out_dim  # Dimensions of the embedding encoder output
+            + 2  # One-hot speaker role vector
         )
 
         # Main encoder for input features
@@ -146,62 +131,71 @@ class SequentialConversationModel(pl.LightningModule):
             dropout=encoder_dropout,
         )
 
-        # Embeddings
+        # The dimensions of each historical timestep as output by the segment encoder.
+        history_dim: Final[int] = encoder_hidden_dim
+
+        # Attention
         # =====================
-        # If using speaker identities, set up speaker identity embeddings.
-        # if speaker_identity:
-        #     if speaker_identity_dim is None:
-        #         raise Exception(
-        #             "If using speaker identity embeddings, speaker_identity_dim is required"
-        #         )
-        #     if speaker_identity_count is None:
-        #         raise Exception(
-        #             "If using speaker identity embeddings, speaker_identity_count is required"
-        #         )
+        # The attention mechanisms attend to segments in the conversation history. They
+        # determine which segments are most useful for decoding into the upcoming speech
+        # features. Depending on the configuration, there may be one or more attention
+        # mechanisms and one or more decoders.
 
-        #     self.speaker_identity_embedding = nn.Embedding(
-        #         num_embeddings=speaker_identity_count + 1,
-        #         padding_idx=0,
-        #         embedding_dim=speaker_identity_dim,
-        #     )
+        # Each attention mechanism outputs a tensor of the same size as a historical
+        # timestep. Calculate the total output size depending on whether
+        # we're using dual or single attention
+        att_multiplier: Final[int] = 2 if attention_style == "dual" else 1
+        att_history_out_dim: Final[int] = history_dim * att_multiplier
 
-        # Attention layers
-        # =====================
-        print(f"Attention: attention_in_dim = {history_dim}")
-        self.attentions = nn.ModuleList()
-        for i in range(num_decoders):
-            if attention_style == "dual_combined":
-                attention: AttentionModule = DualCombinedAttention(
-                    history_in_dim=history_dim,
-                    context_dim=att_context_dim,
-                    att_dim=decoder_att_dim,
-                )
-            elif attention_style == "dual":
-                attention: AttentionModule = DualAttention(
-                    history_in_dim=history_dim,
-                    context_dim=att_context_dim,
-                    att_dim=decoder_att_dim,
-                )
-            elif attention_style == "single":
-                attention: AttentionModule = SingleAttention(
-                    history_in_dim=history_dim,
-                    context_dim=att_context_dim,
-                    att_dim=decoder_att_dim,
-                )
-            elif attention_style is None:
-                attention: AttentionModule = NoopAttention()
-            else:
-                raise Exception(f"Unrecognized attention style '{attention_style}'")
+        att_context_dim: Final[int] = (
+            embedding_encoder_att_dim  # The encoded representation of the upcoming segment transcript
+            + decoder_hidden_dim  # The decoder hidden state
+        )
 
-            self.attentions.append(attention)
+        # Initialize the attention mechanisms
+        if attention_style == "dual":
+            self.attentions = nn.ModuleList(
+                [
+                    DualAttention(
+                        history_in_dim=history_dim,
+                        context_dim=att_context_dim,
+                        att_dim=decoder_att_dim,
+                    )
+                    for _ in range(num_decoders)
+                ]
+            )
+        elif attention_style == "single":
+            self.attentions = nn.ModuleList(
+                [
+                    SingleAttention(
+                        history_in_dim=history_dim,
+                        context_dim=att_context_dim,
+                        att_dim=decoder_att_dim,
+                    )
+                    for _ in range(num_decoders)
+                ]
+            )
+        elif attention_style is None:
+            self.attentions = nn.ModuleList(
+                [NoopAttention() for _ in range(num_decoders)]
+            )
+        else:
+            raise Exception(f"Unrecognized attention style '{attention_style}'")
 
         # Decoders
         # =====================
-        print(f"Decoder: decoder_in_dim = {decoder_in_dim}")
-        print(f"Decoder: decoder_hidden_dim =  {decoder_hidden_dim}")
-        self.decoders = nn.ModuleList()
-        for i in range(num_decoders):
-            self.decoders.append(
+        # Decoders predict speech features from the upcoming segment based on its transcript
+        # and from attention-summarized historical segments.
+
+        decoder_in_dim = (
+            embedding_encoder_out_dim  # Size of the embedding encoder output for upcoming segment text
+            + att_history_out_dim  # Size of the attention mechanism output for summarized historical segments
+            + 2  # One-hot speaker role vector
+        )
+
+        # Initialize the decoders
+        self.decoders = nn.ModuleList(
+            [
                 Decoder(
                     decoder_in_dim=decoder_in_dim,
                     hidden_dim=decoder_hidden_dim,
@@ -210,7 +204,9 @@ class SequentialConversationModel(pl.LightningModule):
                     output_dim=1,
                     activation=None,
                 )
-            )
+                for _ in range(num_decoders)
+            ]
+        )
 
     def configure_optimizers(self):
         return torch.optim.AdamW(self.parameters(), lr=self.lr)
@@ -228,8 +224,12 @@ class SequentialConversationModel(pl.LightningModule):
         elif self.speaker_agent_role == "random":
             generator: Final[Generator] = torch.random.manual_seed(batch.conv_id[0])
             agent_idx_bool: Final[Tensor] = (
-                torch.rand(batch.speaker_id_idx.shape[0], generator=generator) < 0.5
-            )
+                torch.rand(
+                    batch.speaker_id_idx.shape[0],
+                    generator=generator,
+                )
+                < 0.5
+            ).to(self.device)
             partner_idx_bool: Final[Tensor] = ~agent_idx_bool
             agent_segment_idxs: Tensor = agent_idx_bool.type(torch.long)
             partner_segment_idxs: Tensor = partner_idx_bool.type(torch.long)
@@ -341,10 +341,9 @@ class SequentialConversationModel(pl.LightningModule):
             agent_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx]
             partner_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx - 1]
         elif self.speaker_agent_role == "random":
-            generator: Final[Generator] = torch.random.manual_seed(batch.conv_id[0])
             agent_idx_bool: Final[Tensor] = (
-                torch.rand(batch.speaker_id_idx.shape[0], generator=generator) < 0.5
-            )
+                torch.rand(batch.speaker_id_idx.shape[0]) < 0.5
+            ).to(self.device)
             partner_idx_bool: Final[Tensor] = ~agent_idx_bool
             agent_segment_idxs: Tensor = agent_idx_bool.type(torch.long)
             partner_segment_idxs: Tensor = partner_idx_bool.type(torch.long)
@@ -427,7 +426,7 @@ class SequentialConversationModel(pl.LightningModule):
         # Get some basic information from the input tensors
         batch_size = features.shape[0]
         num_timesteps = features.shape[1]
-        device = features.device
+        device = wfeatures.device
 
         # Bulk encode the texts from all turns, then break them out into appropriate batches
         embeddings_encoded, _ = self.embedding_encoder(embeddings, embeddings_len)

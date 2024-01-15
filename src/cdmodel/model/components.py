@@ -122,56 +122,6 @@ class DualAttention(AttentionModule):
         return torch.cat([our_att, their_att], dim=-1), (our_scores, their_scores, None)
 
 
-class DualCombinedAttention(AttentionModule):
-    def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
-        super().__init__()
-
-        self.our_attention = Attention(
-            history_in_dim=history_in_dim,
-            context_dim=context_dim,
-            att_dim=att_dim,
-        )
-        self.their_attention = Attention(
-            history_in_dim=history_in_dim,
-            context_dim=context_dim,
-            att_dim=att_dim,
-        )
-        self.combined_attention = Attention(
-            history_in_dim=history_in_dim, context_dim=context_dim, att_dim=att_dim
-        )
-
-    def forward(
-        self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
-    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
-        our_att, our_scores = self.our_attention(
-            history,
-            context=context,
-            mask=~our_mask.unsqueeze(-1),
-        )
-
-        their_att, their_scores = self.their_attention(
-            history,
-            context=context,
-            mask=~their_mask.unsqueeze(-1),
-        )
-
-        our_att = our_att.unsqueeze(1)
-        their_att = their_att.unsqueeze(1)
-        combined_att_in = torch.cat([our_att, their_att], dim=1)
-
-        combined_att, combined_att_scores = self.combined_attention(
-            combined_att_in,
-            context=context,
-            mask=torch.zeros(
-                (combined_att_in.shape[0], combined_att_in.shape[1], 1),
-                dtype=torch.bool,
-                device=combined_att_in.device,
-            ),
-        )
-
-        return combined_att, (our_scores, their_scores, combined_att_scores[:, 0])
-
-
 class SingleAttention(AttentionModule):
     def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
         super().__init__()
