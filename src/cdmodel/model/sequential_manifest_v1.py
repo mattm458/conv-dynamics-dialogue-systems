@@ -15,7 +15,7 @@ from cdmodel.model.components import (
     NoopAttention,
     SingleAttention,
 )
-from cdmodel.model.util import timestep_split
+from cdmodel.model.util import get_role_identity_idx, timestep_split
 
 US: Final[int] = 2
 THEM: Final[int] = 1
@@ -46,7 +46,9 @@ class SequentialConversationModel(pl.LightningModule):
         da_encoding: Literal[None, "one_hot"] = None,
         da_type: Literal[None, "da_category", "da_consolidated"] = None,
         da_dim: Optional[int] = None,
-        speaker_agent_role: Literal["first", "second", "random"] = "second",
+        speaker_agent_role: Literal[
+            "agent_first", "agent_second", "random"
+        ] = "agent_second",
         zero_pad: bool = False,
     ):
         if gender_encoding is not None and gender_dim is None:
@@ -86,7 +88,7 @@ class SequentialConversationModel(pl.LightningModule):
         ] = attention_style
 
         self.speaker_agent_role: Final[
-            Literal["first", "second", "random"]
+            Literal["agent_first", "agent_second", "random"]
         ] = speaker_agent_role
         self.zero_pad: Final[bool] = zero_pad
 
@@ -207,35 +209,17 @@ class SequentialConversationModel(pl.LightningModule):
 
     def validation_step(self, batch: BatchedConversationData, batch_idx: int):
         # Establish the speaker role
-        if self.speaker_agent_role == "first":
-            agent_segment_idx: int = int(self.zero_pad)
-            agent_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx]
-            partner_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx + 1]
-        elif self.speaker_agent_role == "second":
-            agent_segment_idx: int = int(self.zero_pad) + 1
-            agent_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx]
-            partner_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx - 1]
-        elif self.speaker_agent_role == "random":
-            generator: Final[Generator] = torch.random.manual_seed(batch.conv_id[0])
-            agent_idx_bool: Final[Tensor] = (
-                torch.rand(
-                    batch.speaker_id_idx.shape[0],
-                    generator=generator,
-                )
-                < 0.5
-            ).to(self.device)
-            partner_idx_bool: Final[Tensor] = ~agent_idx_bool
-            agent_segment_idxs: Tensor = agent_idx_bool.type(torch.long)
-            partner_segment_idxs: Tensor = partner_idx_bool.type(torch.long)
-            if self.zero_pad:
-                agent_segment_idxs += 1
-                partner_segment_idxs += 1
-            agent_idx = torch.gather(
-                batch.speaker_id_idx, 1, agent_segment_idxs.unsqueeze(1)
-            ).squeeze(1)
-            partner_idx = torch.gather(
-                batch.speaker_id_idx, 1, partner_segment_idxs.unsqueeze(1)
-            ).squeeze(1)
+        generator: Optional[Generator] = None
+        if self.speaker_agent_role == "random":
+            generator = torch.Generator(device=self.device)
+            generator.manual_seed(batch.conv_id[0])
+
+        agent_idx, partner_idx = get_role_identity_idx(
+            speaker_identity_idx=batch.speaker_id_idx,
+            role_assignment=self.speaker_agent_role,
+            zero_pad=self.zero_pad,
+            generator=generator,
+        )
 
         is_agent: Final[Tensor] = batch.speaker_id_idx.eq(agent_idx.unsqueeze(1))
         is_partner: Final[Tensor] = batch.speaker_id_idx.eq(partner_idx.unsqueeze(1))
@@ -317,39 +301,17 @@ class SequentialConversationModel(pl.LightningModule):
         for name, parameter in self.named_parameters():
             self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
-        # if self.speaker_identity:
-        #     self.logger.experiment.add_embedding(
-        #         self.speaker_identity_embedding.weight,
-        #         tag="Speaker identity",
-        #         global_step=self.global_step,
-        #     )
+    def training_step(self, batch: BatchedConversationData, batch_idx: int):
+        generator: Optional[Generator] = None
+        if self.speaker_agent_role == "random":
+            generator = torch.Generator(device=self.device)
 
-    def training_step(self, batch, batch_idx):
-        # Establish the speaker role
-        if self.speaker_agent_role == "first":
-            agent_segment_idx: int = int(self.zero_pad)
-            agent_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx]
-            partner_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx + 1]
-        elif self.speaker_agent_role == "second":
-            agent_segment_idx: int = int(self.zero_pad) + 1
-            agent_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx]
-            partner_idx: Tensor = batch.speaker_id_idx[:, agent_segment_idx - 1]
-        elif self.speaker_agent_role == "random":
-            agent_idx_bool: Final[Tensor] = (
-                torch.rand(batch.speaker_id_idx.shape[0]) < 0.5
-            ).to(self.device)
-            partner_idx_bool: Final[Tensor] = ~agent_idx_bool
-            agent_segment_idxs: Tensor = agent_idx_bool.type(torch.long)
-            partner_segment_idxs: Tensor = partner_idx_bool.type(torch.long)
-            if self.zero_pad:
-                agent_segment_idxs += 1
-                partner_segment_idxs += 1
-            agent_idx = torch.gather(
-                batch.speaker_id_idx, 1, agent_segment_idxs.unsqueeze(1)
-            ).squeeze(1)
-            partner_idx = torch.gather(
-                batch.speaker_id_idx, 1, partner_segment_idxs.unsqueeze(1)
-            ).squeeze(1)
+        agent_idx, partner_idx = get_role_identity_idx(
+            speaker_identity_idx=batch.speaker_id_idx,
+            role_assignment=self.speaker_agent_role,
+            zero_pad=self.zero_pad,
+            generator=generator,
+        )
 
         is_agent: Final[Tensor] = batch.speaker_id_idx.eq(agent_idx.unsqueeze(1))
         is_partner: Final[Tensor] = batch.speaker_id_idx.eq(partner_idx.unsqueeze(1))
@@ -439,14 +401,6 @@ class SequentialConversationModel(pl.LightningModule):
                 :, :, 1:
             ]
 
-        # if self.speaker_identity:
-        #     speaker_identities = self.speaker_identity_embedding(speaker_identities)
-        #     speaker_identities = timestep_split(speaker_identities)
-
-        #     if self.speaker_identity_partner:
-        #         partner_identities = self.speaker_identity_embedding(partner_identities)
-        #         partner_identities = timestep_split(partner_identities)
-
         our_history_mask = (speakers.unsqueeze(2) == US).all(dim=-1)
         their_history_mask = (speakers.unsqueeze(2) == THEM).all(dim=-1)
 
@@ -498,14 +452,6 @@ class SequentialConversationModel(pl.LightningModule):
                 gender_timestep = gender_timesteps[i]
                 gender_next = gender_timesteps[i + 1]
 
-            # if self.speaker_identity:
-            #     speaker_identity_timestep = speaker_identities[0]
-            #     speaker_identity_next = speaker_identities[1]
-
-            #     if self.speaker_identity_partner:
-            #         partner_identity_timestep = partner_identities[0]
-            #         partner_identity_next = partner_identities[1]
-
             # Get some timestep-specific data from the input
             embeddings_encoded_timestep = embeddings_encoded[i]
             embeddings_encoded_timestep_next = embeddings_encoded[i + 1]
@@ -521,9 +467,6 @@ class SequentialConversationModel(pl.LightningModule):
 
             if self.gender_encoding:
                 encoder_in.append(gender_timestep)
-
-            # if self.speaker_identity and self.speaker_identity_encoder:
-            #     encoder_in.append(speaker_identity_timestep)
 
             encoder_in = torch.cat(encoder_in, dim=-1)
 
