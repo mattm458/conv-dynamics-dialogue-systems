@@ -16,9 +16,7 @@ from cdmodel.model.components import (
     SingleAttention,
 )
 from cdmodel.model.util import get_role_identity_idx, timestep_split
-
-US: Final[int] = 2
-THEM: Final[int] = 1
+from cdmodel.consts import SPEAKER_ROLE_AGENT_IDX, SPEAKER_ROLE_PARTNER_IDX
 
 
 class SequentialConversationModel(pl.LightningModule):
@@ -228,9 +226,9 @@ class SequentialConversationModel(pl.LightningModule):
             partner_identity_idx.unsqueeze(1)
         )
         speaker_role: Final[Tensor] = torch.zeros_like(batch.speaker_id_idx)
-        speaker_role[is_agent] = US
-        speaker_role[is_partner] = THEM
-        predict = (speaker_role == US)[:, 1:]
+        speaker_role[is_agent] = SPEAKER_ROLE_AGENT_IDX
+        speaker_role[is_partner] = SPEAKER_ROLE_PARTNER_IDX
+        predict = (speaker_role == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
 
         (
             our_features_pred,
@@ -324,9 +322,9 @@ class SequentialConversationModel(pl.LightningModule):
             partner_identity_idx.unsqueeze(1)
         )
         speaker_role: Final[Tensor] = torch.zeros_like(batch.speaker_id_idx)
-        speaker_role[is_agent] = US
-        speaker_role[is_partner] = THEM
-        predict = (speaker_role == US)[:, 1:]
+        speaker_role[is_agent] = SPEAKER_ROLE_AGENT_IDX
+        speaker_role[is_partner] = SPEAKER_ROLE_PARTNER_IDX
+        predict = (speaker_role == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
 
         (
             our_features_pred,
@@ -409,8 +407,10 @@ class SequentialConversationModel(pl.LightningModule):
                 :, :, 1:
             ]
 
-        our_history_mask = (speakers.unsqueeze(2) == US).all(dim=-1)
-        their_history_mask = (speakers.unsqueeze(2) == THEM).all(dim=-1)
+        our_history_mask = (speakers.unsqueeze(2) == SPEAKER_ROLE_AGENT_IDX).all(dim=-1)
+        their_history_mask = (speakers.unsqueeze(2) == SPEAKER_ROLE_PARTNER_IDX).all(
+            dim=-1
+        )
 
         # For efficiency, preemptively split some inputs by timestep
         features = timestep_split(features)
