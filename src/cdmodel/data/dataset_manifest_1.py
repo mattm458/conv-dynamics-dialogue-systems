@@ -92,7 +92,7 @@ class ConversationDataset(Dataset):
             [conv_data[feature] for feature in self.features]
         ).swapaxes(0, 1)
 
-        embeddings: Final[Tensor] = torch.load(
+        embeddings: Tensor = torch.load(
             path.join(self.dataset_dir, "embeddings", f"{conv_id}-embeddings.pt")
         )
         embeddings_len: Tensor = torch.load(
