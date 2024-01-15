@@ -1,13 +1,13 @@
-from cdmodel.model.sequential import SequentialConversationModel
+from cdmodel.model.sequential_manifest_v1 import SequentialConversationModel
 from cdmodel.model.windowed import WindowedConversationModel
 
 
 def get_model(
-    model_config,
-    training_config,
-    feature_names,
+    dataset_config: dict,
+    model_config: dict,
+    training_config: dict,
+    feature_names: list[str],
     SequentialClass=SequentialConversationModel,
-    da=False,
 ):
     if model_config["type"] == "windowed":
         return WindowedConversationModel(
@@ -20,8 +20,8 @@ def get_model(
     elif model_config["type"] == "sequential":
         return SequentialClass(
             lr=training_config["lr"],
-            feature_names=feature_names,
-            da=da,
+            features=feature_names,
+            zero_pad=dataset_config["zero_pad"],
             **model_config["args"],
         )
     else:

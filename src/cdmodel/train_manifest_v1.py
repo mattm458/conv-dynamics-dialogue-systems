@@ -325,6 +325,7 @@ def standard_train(
 
     # Create a new instance of the model based on the config
     model = get_model(
+        dataset_config=dataset_config,
         model_config=model_config,
         training_config=training_config,
         feature_names=dataset_config["features"],
