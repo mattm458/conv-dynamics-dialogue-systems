@@ -239,7 +239,7 @@ class SequentialConversationModel(pl.LightningModule):
             their_history_mask,
         ) = self(
             features=batch.features,
-            speakers=speaker_role_idx,
+            speaker_role_idx=speaker_role_idx,
             embeddings=batch.embeddings,
             embeddings_len=batch.embeddings_segment_len,
             predict=predict,
@@ -331,7 +331,7 @@ class SequentialConversationModel(pl.LightningModule):
             their_history_mask,
         ) = self(
             features=batch.features,
-            speakers=speaker_role_idx,
+            speaker_role_idx=speaker_role_idx,
             embeddings=batch.embeddings,
             embeddings_len=batch.embeddings_segment_len,
             predict=predict,
@@ -368,7 +368,7 @@ class SequentialConversationModel(pl.LightningModule):
     def forward(
         self,
         features,
-        speakers,
+        speaker_role_idx,
         embeddings,
         embeddings_len,
         predict,
@@ -400,19 +400,21 @@ class SequentialConversationModel(pl.LightningModule):
             )[:, :, 1:]
 
         if self.speaker_role_encoding == "one_hot":
-            speaker_role_encoded: Final[Tensor] = F.one_hot(speakers, num_classes=3)[
+            speaker_role: Final[Tensor] = F.one_hot(speaker_role_idx, num_classes=3)[
                 :, :, 1:
             ]
 
-        our_history_mask = (speakers.unsqueeze(2) == SPEAKER_ROLE_AGENT_IDX).all(dim=-1)
-        their_history_mask = (speakers.unsqueeze(2) == SPEAKER_ROLE_PARTNER_IDX).all(
-            dim=-1
-        )
+        our_history_mask = (
+            speaker_role_idx.unsqueeze(2) == SPEAKER_ROLE_AGENT_IDX
+        ).all(dim=-1)
+        their_history_mask = (
+            speaker_role_idx.unsqueeze(2) == SPEAKER_ROLE_PARTNER_IDX
+        ).all(dim=-1)
 
         # For efficiency, preemptively split some inputs by timestep
         features = timestep_split(features)
         predict = timestep_split(predict)
-        speakers_timesteps = timestep_split(speaker_role_encoded)
+        speaker_role_timesteps = timestep_split(speaker_role)
         embeddings_encoded = timestep_split(embeddings_encoded)
 
         if self.gender_encoding:
@@ -451,7 +453,7 @@ class SequentialConversationModel(pl.LightningModule):
                 .type(features_timestep.dtype)
             )
 
-            speaker_timestep = speakers_timesteps[i]
+            speaker_timestep = speaker_role_timesteps[i]
 
             if self.gender_encoding:
                 gender_timestep = gender_timesteps[i]
@@ -493,7 +495,7 @@ class SequentialConversationModel(pl.LightningModule):
             embeddings_encoded_timestep_next_pred = embeddings_encoded_timestep_next
 
             # Get the speaker that the decoder is about to receive
-            speaker_next = speakers_timesteps[i + 1]
+            speaker_next = speaker_role_timesteps[i + 1]
 
             # Assemble the attention context vector for each of the decoder attention layer(s)
             att_contexts = []
