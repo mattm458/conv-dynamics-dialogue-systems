@@ -122,6 +122,31 @@ def get_speaker_role_idx(
     plus separate tensors indicating which speaker identities are assuming the role of agent
     and which speaker identities are assuming the role of partner.
 
+    As an example, assume the speaker identity indices contain the following batched segments:
+
+    ```py
+    [
+        [5, 6, 5, 6, 5, 0],
+        [6, 7, 6, 7, 0, 0],
+        [3, 4, 3, 4, 3, 3]
+    ]
+    ```
+
+    If the agent identities are `[5, 6, 4]` and the partner identities are `[6, 7, 3]`,
+    then the output of this function will be the following tensor:
+
+    ```py
+    [
+        [2, 1, 2, 1, 2, 0],
+        [2, 1, 2, 1, 0, 0],
+        [1, 2, 1, 2, 1, 1]
+    ]
+    ```
+
+    This is because the agent role index is hardcoded at 2, and the speaker role index at 1.
+    Values of 0 are ignored, since they are used for padding.
+
+
     Parameters
     ----------
     speaker_identity_idx : Tensor
