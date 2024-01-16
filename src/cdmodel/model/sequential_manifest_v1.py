@@ -94,6 +94,8 @@ class SequentialConversationModel(pl.LightningModule):
         ] = speaker_agent_role
         self.zero_pad: Final[bool] = zero_pad
 
+        self.generator: Optional[Generator] = None
+
         # Embedding Encoder
         # =====================
         # The embedding encoder encodes textual data associated with each conversational
@@ -210,17 +212,14 @@ class SequentialConversationModel(pl.LightningModule):
         return torch.optim.AdamW(self.parameters(), lr=self.lr)
 
     def validation_step(self, batch: BatchedConversationData, batch_idx: int):
-        # Establish the speaker role
-        generator: Optional[Generator] = None
-        if self.role_assignment == "random":
-            generator = torch.Generator(device=self.device)
-            generator.manual_seed(batch.conv_id[0])
+        if self.role_assignment == "random" and self.generator is not None:
+            self.generator.manual_seed(batch.conv_id[0])
 
         agent_identity_idx, partner_identity_idx = get_role_identity_idx(
             speaker_identity_idx=batch.speaker_id_idx,
             role_assignment=self.role_assignment,
             zero_pad=self.zero_pad,
-            generator=generator,
+            generator=self.generator,
         )
 
         speaker_role_idx: Final[Tensor] = get_speaker_role_idx(
@@ -300,20 +299,28 @@ class SequentialConversationModel(pl.LightningModule):
         self.validation_attention_theirs.clear()
         self.validation_attention_theirs_history_mask.clear()
 
+    def on_train_epoch_start(self):
+        if self.role_assignment == "random" and self.generator is not None:
+            self.generator.seed()
+
     def on_train_epoch_end(self):
         for name, parameter in self.named_parameters():
             self.logger.experiment.add_histogram(name, parameter, self.global_step)
 
-    def training_step(self, batch: BatchedConversationData, batch_idx: int):
-        generator: Optional[Generator] = None
+    def on_fit_start(self):
         if self.role_assignment == "random":
-            generator = torch.Generator(device=self.device)
+            self.generator = torch.Generator(device=self.device)
 
+    def on_predict_start(self):
+        if self.role_assignment == "random":
+            self.generator = torch.Generator(device=self.device)
+
+    def training_step(self, batch: BatchedConversationData, batch_idx: int):
         agent_identity_idx, partner_identity_idx = get_role_identity_idx(
             speaker_identity_idx=batch.speaker_id_idx,
             role_assignment=self.role_assignment,
             zero_pad=self.zero_pad,
-            generator=generator,
+            generator=self.generator,
         )
 
         speaker_role_idx: Final[Tensor] = get_speaker_role_idx(
