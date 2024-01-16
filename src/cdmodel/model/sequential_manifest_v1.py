@@ -374,40 +374,36 @@ class SequentialConversationModel(pl.LightningModule):
 
     def forward(
         self,
-        features,
-        speaker_role_idx,
-        embeddings,
-        embeddings_len,
-        predict_next,
-        conv_len,
+        features: Tensor,
+        speaker_role_idx: Tensor,
+        embeddings: Tensor,
+        embeddings_len: Tensor,
+        predict_next: Tensor,
+        conv_len: Tensor,
         gender_idx: Tensor,
     ):
         # Get some basic information from the input tensors
-        batch_size = features.shape[0]
-        num_timesteps = features.shape[1]
+        batch_size: Final[int] = features.shape[0]
+        num_segments: Final[int] = features.shape[1]
         device = features.device
 
         # Bulk encode the texts from all turns, then break them out into appropriate batches
+        embeddings_encoded: Tensor
         embeddings_encoded, _ = self.embedding_encoder(embeddings, embeddings_len)
         embeddings_encoded = nn.utils.rnn.pad_sequence(
             torch.split(embeddings_encoded, conv_len.tolist()), batch_first=True
         )
 
-        # Encode gender
-        gender_encoded: Optional[Tensor] = None
-        if self.gender_encoding == "one_hot":
-            gender_encoded = one_hot_drop_0(gender_idx, num_classes=self.gender_dim + 1)
-
         speaker_role_encoded: Optional[Tensor] = None
         if self.speaker_role_encoding == "one_hot":
             speaker_role_encoded = one_hot_drop_0(speaker_role_idx, num_classes=3)
 
-        our_history_mask = (
-            speaker_role_idx.unsqueeze(2) == SPEAKER_ROLE_AGENT_IDX
-        ).all(dim=-1)
-        their_history_mask = (
-            speaker_role_idx.unsqueeze(2) == SPEAKER_ROLE_PARTNER_IDX
-        ).all(dim=-1)
+        gender_encoded: Optional[Tensor] = None
+        if self.gender_encoding == "one_hot":
+            gender_encoded = one_hot_drop_0(gender_idx, num_classes=self.gender_dim + 1)
+
+        agent_history_mask = speaker_role_idx == SPEAKER_ROLE_AGENT_IDX
+        partner_history_mask = speaker_role_idx == SPEAKER_ROLE_PARTNER_IDX
 
         # For efficiency, preemptively split some inputs by timestep
         features_segmented = timestep_split(features)
@@ -425,7 +421,7 @@ class SequentialConversationModel(pl.LightningModule):
         ]
 
         # Lists to store accumulated conversation data from the main loop below
-        history = []
+        encoded_segments: list[Tensor] = []
         decoded_all = []
         our_scores_all = []
         their_scores_all = []
@@ -435,7 +431,7 @@ class SequentialConversationModel(pl.LightningModule):
         prev_predict = torch.zeros((batch_size,), device=device, dtype=torch.bool)
 
         # Iterate through the entire conversation
-        for i in range(num_timesteps - 1):
+        for i in range(num_segments - 1):
             # Autoregression/teacher forcing:
             # Create a mask that contains True if a previously predicted feature should be fed
             # back into the model, or False if the ground truth value should be used instead
@@ -454,8 +450,8 @@ class SequentialConversationModel(pl.LightningModule):
             speaker_role_encoded_segment = speaker_role_encoded_segmented[i]
 
             if self.gender_encoding:
-                gender_timestep = gender_segmented[i]
-                gender_next = gender_segmented[i + 1]
+                gender_segment = gender_segmented[i]
+                gender_segment_next = gender_segmented[i + 1]
 
             # Get some timestep-specific data from the input
             embeddings_encoded_segment = embeddings_encoded_segmented[i]
@@ -471,23 +467,17 @@ class SequentialConversationModel(pl.LightningModule):
             ]
 
             if self.gender_encoding:
-                encoder_in.append(gender_timestep)
+                encoder_in.append(gender_segment)
 
             encoder_in = torch.cat(encoder_in, dim=-1)
 
             # Encode the input and append it to the history.
             encoded, encoder_hidden = self.encoder(encoder_in, encoder_hidden)
 
-            encoded_list = [encoded]
-            # if self.speaker_identity:
-            #     encoded_list.append(speaker_identity_timestep)
-
-            encoded = torch.concat(encoded_list, dim=1)
-
-            history.append(encoded.unsqueeze(1))
+            encoded_segments.append(encoded)
 
             # Concatenate the history tensor and select specific batch indexes where we are predicting
-            history_cat = torch.cat(history, dim=1)
+            history = torch.stack(encoded_segments, dim=1)
 
             # Get the speaker that the decoder is about to receive
             speaker_next = speaker_role_encoded_segmented[i + 1]
@@ -499,8 +489,8 @@ class SequentialConversationModel(pl.LightningModule):
                 att_contexts.append(torch.cat(att_contexts_arr, dim=-1))
 
             # Get our/their history masks for the timesteps we're about to predict
-            our_history_mask_timestep = our_history_mask[:, : i + 1]
-            their_history_mask_timestep = their_history_mask[:, : i + 1]
+            agent_history_mask_subset = agent_history_mask[:, : i + 1]
+            partner_history_mask_subset = partner_history_mask[:, : i + 1]
 
             our_scores_cat = []
             their_scores_cat = []
@@ -516,10 +506,10 @@ class SequentialConversationModel(pl.LightningModule):
                 )
             ):
                 history_att, (our_scores, their_scores, combined_scores) = attention(
-                    history_cat,
+                    history,
                     context=att_context,
-                    our_mask=our_history_mask_timestep,
-                    their_mask=their_history_mask_timestep,
+                    our_mask=agent_history_mask_subset,
+                    their_mask=partner_history_mask_subset,
                 )
                 combined_scores_cat.append(combined_scores)
 
@@ -537,12 +527,7 @@ class SequentialConversationModel(pl.LightningModule):
                 ]
 
                 if self.gender_encoding:
-                    decoder_in_arr.append(gender_next)
-
-                # if self.speaker_identity:
-                #     decoder_in_arr.append(speaker_identity_next)
-                #     if self.speaker_identity_partner:
-                #         decoder_in_arr.append(partner_identity_next)
+                    decoder_in_arr.append(gender_segment_next)
 
                 decoder_in = torch.cat(decoder_in_arr, dim=-1)
 
@@ -563,7 +548,7 @@ class SequentialConversationModel(pl.LightningModule):
             if len(our_scores_cat) > 0:
                 for our_scores in our_scores_cat:
                     our_scores_expanded = torch.zeros(
-                        (batch_size, num_timesteps - 1), device=device
+                        (batch_size, num_segments - 1), device=device
                     )
                     our_scores_expanded[:, : our_scores.shape[1]] = our_scores.squeeze(
                         -1
@@ -576,7 +561,7 @@ class SequentialConversationModel(pl.LightningModule):
             if len(their_scores_cat) > 0:
                 for their_scores in their_scores_cat:
                     their_scores_expanded = torch.zeros(
-                        (batch_size, num_timesteps - 1), device=device
+                        (batch_size, num_segments - 1), device=device
                     )
                     their_scores_expanded[
                         :, : their_scores.shape[1]
@@ -603,9 +588,9 @@ class SequentialConversationModel(pl.LightningModule):
         return (
             decoded_all,
             our_scores_all,
-            our_history_mask,
+            agent_history_mask,
             their_scores_all,
-            their_history_mask,
+            partner_history_mask,
         )
 
     def predict_step(self, batch, batch_idx):

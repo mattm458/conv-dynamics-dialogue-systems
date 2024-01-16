@@ -2,8 +2,13 @@ from typing import Final, Literal, Optional
 
 import torch
 from torch import Generator, Tensor
+from torch.nn import functional as F
 
 from cdmodel.consts import SPEAKER_ROLE_AGENT_IDX, SPEAKER_ROLE_PARTNER_IDX
+
+
+def one_hot_drop_0(tensor: Tensor, num_classes: int) -> Tensor:
+    return F.one_hot(tensor, num_classes=num_classes)[:,:,1:]
 
 
 def lengths_to_mask(lengths: Tensor, max_size: int) -> Tensor:
