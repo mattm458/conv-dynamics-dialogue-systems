@@ -379,14 +379,7 @@ class SequentialConversationModel(pl.LightningModule):
         embeddings_len,
         predict,
         conv_len,
-        autoregress_prob=1.0,
         genders=None,
-        speaker_identities=None,
-        partner_identities=None,
-        agent_spectrogram=None,
-        agent_spectrogram_len=None,
-        partner_spectrogram=None,
-        partner_spectrogram_len=None,
     ):
         # Get some basic information from the input tensors
         batch_size = features.shape[0]
