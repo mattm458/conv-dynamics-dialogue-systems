@@ -1,6 +1,5 @@
 from typing import Final, Literal, Optional
 
-import numpy as np
 import torch
 from lightning import pytorch as pl
 from torch import Generator, Tensor, nn
@@ -48,7 +47,7 @@ class SequentialConversationModel(pl.LightningModule):
         da_encoding: Literal[None, "one_hot"] = None,
         da_type: Literal[None, "da_category", "da_consolidated"] = None,
         da_dim: Optional[int] = None,
-        speaker_agent_role: Literal[
+        role_assignment: Literal[
             "agent_first", "agent_second", "random"
         ] = "agent_second",
         zero_pad: bool = False,
@@ -91,7 +90,7 @@ class SequentialConversationModel(pl.LightningModule):
 
         self.role_assignment: Final[
             Literal["agent_first", "agent_second", "random"]
-        ] = speaker_agent_role
+        ] = role_assignment
         self.zero_pad: Final[bool] = zero_pad
 
         self.generator: Optional[Generator] = None
