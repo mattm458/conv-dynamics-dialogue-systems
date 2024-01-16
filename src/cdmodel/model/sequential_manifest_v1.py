@@ -18,6 +18,7 @@ from cdmodel.model.components import (
 from cdmodel.model.util import (
     get_role_identity_idx,
     get_speaker_role_idx,
+    one_hot_drop_0,
     timestep_split,
 )
 
@@ -227,7 +228,7 @@ class SequentialConversationModel(pl.LightningModule):
             partner_identity_idx=partner_identity_idx,
         )
 
-        predict = (speaker_role_idx == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
+        predict_next = (speaker_role_idx == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
 
         (
             our_features_pred,
@@ -240,17 +241,17 @@ class SequentialConversationModel(pl.LightningModule):
             speaker_role_idx=speaker_role_idx,
             embeddings=batch.embeddings,
             embeddings_len=batch.embeddings_segment_len,
-            predict=predict,
+            predict_next=predict_next,
             conv_len=batch.num_segments,
-            genders=batch.gender_idx,
+            gender_idx=batch.gender_idx,
         )
 
         y = batch.features[:, 1:]
         y_len = batch.num_segments - 1
         batch_size = batch.features.shape[0]
 
-        loss = F.mse_loss(our_features_pred[predict], y[predict])
-        loss_l1 = F.smooth_l1_loss(our_features_pred[predict], y[predict])
+        loss = F.mse_loss(our_features_pred[predict_next], y[predict_next])
+        loss_l1 = F.smooth_l1_loss(our_features_pred[predict_next], y[predict_next])
 
         self.log("validation_loss", loss, on_epoch=True, on_step=False, prog_bar=True)
         self.log("validation_loss_l1", loss_l1, on_epoch=True, on_step=False)
@@ -259,8 +260,8 @@ class SequentialConversationModel(pl.LightningModule):
             self.log(
                 f"validation_loss_l1_{feature_name}",
                 F.smooth_l1_loss(
-                    our_features_pred[predict][:, feature_idx],
-                    y[predict][:, feature_idx],
+                    our_features_pred[predict_next][:, feature_idx],
+                    y[predict_next][:, feature_idx],
                 ),
                 on_epoch=True,
                 on_step=False,
@@ -327,7 +328,7 @@ class SequentialConversationModel(pl.LightningModule):
             agent_identity_idx=agent_identity_idx,
             partner_identity_idx=partner_identity_idx,
         )
-        predict = (speaker_role_idx == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
+        predict_next = (speaker_role_idx == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
 
         (
             our_features_pred,
@@ -340,16 +341,16 @@ class SequentialConversationModel(pl.LightningModule):
             speaker_role_idx=speaker_role_idx,
             embeddings=batch.embeddings,
             embeddings_len=batch.embeddings_segment_len,
-            predict=predict,
+            predict_next=predict_next,
             conv_len=batch.num_segments,
-            genders=batch.gender_idx,
+            gender_idx=batch.gender_idx,
         )
 
         y = batch.features[:, 1:]
         y_len = batch.num_segments - 1
         batch_size = batch.features.shape[0]
 
-        loss = F.mse_loss(our_features_pred[predict], y[predict])
+        loss = F.mse_loss(our_features_pred[predict_next], y[predict_next])
 
         self.log(
             "training_loss", loss.detach(), on_epoch=True, on_step=True, prog_bar=True
@@ -359,8 +360,8 @@ class SequentialConversationModel(pl.LightningModule):
             self.log(
                 f"training_loss_l1_{feature_name}",
                 F.smooth_l1_loss(
-                    our_features_pred[predict][:, feature_idx],
-                    y[predict][:, feature_idx],
+                    our_features_pred[predict_next][:, feature_idx],
+                    y[predict_next][:, feature_idx],
                 ).detach(),
                 on_epoch=True,
                 on_step=True,
@@ -377,9 +378,9 @@ class SequentialConversationModel(pl.LightningModule):
         speaker_role_idx,
         embeddings,
         embeddings_len,
-        predict,
+        predict_next,
         conv_len,
-        genders=None,
+        gender_idx: Tensor,
     ):
         # Get some basic information from the input tensors
         batch_size = features.shape[0]
@@ -393,15 +394,13 @@ class SequentialConversationModel(pl.LightningModule):
         )
 
         # Encode gender
+        gender_encoded: Optional[Tensor] = None
         if self.gender_encoding == "one_hot":
-            gender_encoded: Final[Tensor] = F.one_hot(
-                genders, num_classes=self.gender_dim + 1
-            )[:, :, 1:]
+            gender_encoded = one_hot_drop_0(gender_idx, num_classes=self.gender_dim + 1)
 
+        speaker_role_encoded: Optional[Tensor] = None
         if self.speaker_role_encoding == "one_hot":
-            speaker_role_encoded: Final[Tensor] = F.one_hot(
-                speaker_role_idx, num_classes=3
-            )[:, :, 1:]
+            speaker_role_encoded = one_hot_drop_0(speaker_role_idx, num_classes=3)
 
         our_history_mask = (
             speaker_role_idx.unsqueeze(2) == SPEAKER_ROLE_AGENT_IDX
@@ -411,13 +410,13 @@ class SequentialConversationModel(pl.LightningModule):
         ).all(dim=-1)
 
         # For efficiency, preemptively split some inputs by timestep
-        features_segments = timestep_split(features)
-        predict_segments = timestep_split(predict)
-        speaker_role_encoded_segments = timestep_split(speaker_role_encoded)
-        embeddings_encoded_segments = timestep_split(embeddings_encoded)
+        features_segmented = timestep_split(features)
+        predict_next_segmented = timestep_split(predict_next)
+        speaker_role_encoded_segmented = timestep_split(speaker_role_encoded)
+        embeddings_encoded_segmented = timestep_split(embeddings_encoded)
 
         if self.gender_encoding:
-            gender_timesteps = timestep_split(gender_encoded)
+            gender_segmented = timestep_split(gender_encoded)
 
         # Create initial zero hidden states for the encoder and decoder(s)
         encoder_hidden = self.encoder.get_hidden(batch_size=batch_size, device=device)
@@ -444,7 +443,7 @@ class SequentialConversationModel(pl.LightningModule):
             autoregress_mask = prev_predict * (
                 torch.rand(prev_predict.shape, device=device) < 1.0  # autoregress_prob
             )
-            features_segment = features_segments[i].clone()
+            features_segment = features_segmented[i].clone()
             features_segment[autoregress_mask] = (
                 prev_features[autoregress_mask]
                 .detach()
@@ -452,16 +451,16 @@ class SequentialConversationModel(pl.LightningModule):
                 .type(features_segment.dtype)
             )
 
-            speaker_role_encoded_segment = speaker_role_encoded_segments[i]
+            speaker_role_encoded_segment = speaker_role_encoded_segmented[i]
 
             if self.gender_encoding:
-                gender_timestep = gender_timesteps[i]
-                gender_next = gender_timesteps[i + 1]
+                gender_timestep = gender_segmented[i]
+                gender_next = gender_segmented[i + 1]
 
             # Get some timestep-specific data from the input
-            embeddings_encoded_segment = embeddings_encoded_segments[i]
-            embeddings_encoded_segment_next = embeddings_encoded_segments[i + 1]
-            predict_segment = predict_segments[i]
+            embeddings_encoded_segment = embeddings_encoded_segmented[i]
+            embeddings_encoded_segment_next = embeddings_encoded_segmented[i + 1]
+            predict_next_segment = predict_next_segmented[i]
 
             # Assemble the encoder input. This includes the current conversation features
             # and the previously-encoded embeddings.
@@ -491,7 +490,7 @@ class SequentialConversationModel(pl.LightningModule):
             history_cat = torch.cat(history, dim=1)
 
             # Get the speaker that the decoder is about to receive
-            speaker_next = speaker_role_encoded_segments[i + 1]
+            speaker_next = speaker_role_encoded_segmented[i + 1]
 
             # Assemble the attention context vector for each of the decoder attention layer(s)
             att_contexts = []
@@ -555,7 +554,7 @@ class SequentialConversationModel(pl.LightningModule):
             features_pred = torch.cat(features_pred, dim=-1)
             decoded_all.append(features_pred.unsqueeze(1))
 
-            prev_predict = predict_segment
+            prev_predict = predict_next_segment
             prev_features = features_pred
 
             our_scores_expanded_all = []
