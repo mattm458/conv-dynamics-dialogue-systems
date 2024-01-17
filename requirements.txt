@@ -1,4 +1,4 @@
-beautifulsoup4==4.12.2
+beautifulsoup4==4.12.3
 click==8.1.7
 hyphenate==1.1.0
 lightning==2.1.3
