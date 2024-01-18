@@ -25,6 +25,7 @@ cdmodel = "cdmodel.cdmodel:start"
 
 [tool.pytest.ini_options]
 addopts = [
+    "--cov=cdmodel",
     "--import-mode=importlib",
 ]
 pythonpath = "src"
