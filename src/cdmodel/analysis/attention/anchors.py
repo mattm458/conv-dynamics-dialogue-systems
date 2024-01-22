@@ -1,77 +1,73 @@
-from typing import Final, NamedTuple
+from typing import Final, NamedTuple, Optional
 
 import torch
 from torch import Tensor
 
 
+class AnchorTimestep(NamedTuple):
+    predict_timestep: int
+    scores: Tensor
+
+
 class Anchor(NamedTuple):
-    """
-    An object representing a conversational anchor. An anchor is a segment
-    that was found relevant by an attention mechanism for several consecutive
-    output timesteps.
-
-    Attributes
-    ----------
-    segment_idx : int
-        The index of the historical segment.
-    timesteps : list[int]
-        The index of consecutive timesteps where `segment_idx` had the
-        highest attention score.
-    """
-
-    segment_idx: int
-    timesteps: list[int]
+    highest_scoring_segment: int
+    timesteps: list[AnchorTimestep]
 
 
-def get_att_anchors(att_scores: list[Tensor]) -> list[Anchor]:
+def find_anchors(scores_all: list[Tensor]) -> list[Anchor]:
     """
     Anchors are historical segments in a conversation that are scored the
     highest by an attention mechanism for several consecutive output timesteps.
 
     This function extracts anchors from all attention scores in a conversation.
-    *Note that determining an appropriate length for anchors is outside the scope of this function*: it will return achors that are relevant for only one
+    *Note that determining an appropriate length for anchors is outside the scope
+    of this function*: it will return achors that are relevant for only one
     timestep, which may not be appropriate for an anchor analysis. You must
     filter the output of this function to remove anchors which are too short!
 
 
     Parameters
     ----------
-    att_data : list[Tensor]
-        A list of attention scores. The list contains attention scores at each
-        output timestep in the conversaion.
+    scores_all : list[Tensor]
+        All attention scores from all historical conversation timesteps.
 
     Returns
     -------
     list[Anchor]
-        A list containing all Anchor objects found in the attention scores.
+        All anchors found in the attention scores.
     """
 
     output: Final[list[Anchor]] = []
+    current_highest_scoring_segment: Optional[int] = None
+    current_anchor_timesteps: list[AnchorTimestep] = []
 
-    anchor_this: list[int] = []
-    prev_highest_score_idx: int = -1
+    for i, scores in enumerate(scores_all):
+        this_highest_scoring_segment: int = torch.argmax(scores).item()
 
-    for i, att_timestep in enumerate(att_scores):
-        highest_score_idx: int = int(torch.argmax(att_timestep))
-
-        # Have we broken a streak of the same highest index?
-        if highest_score_idx != prev_highest_score_idx:
-            # If so, start a new streak at the current highest index
-
-            # If the streak lasted longer than 1 timestep, save it
-            if len(anchor_this) > 0:
+        # If the highest-scoring segment is different than the previous highest-scoring segment,
+        # then we're starting a new anchor.
+        if this_highest_scoring_segment != current_highest_scoring_segment:
+            if current_highest_scoring_segment is not None:
                 output.append(
-                    Anchor(segment_idx=prev_highest_score_idx, timesteps=anchor_this)
+                    Anchor(
+                        highest_scoring_segment=current_highest_scoring_segment,
+                        timesteps=current_anchor_timesteps,
+                    )
                 )
-            anchor_this = [i]
 
-            prev_highest_score_idx = int(highest_score_idx)
+            current_highest_scoring_segment = this_highest_scoring_segment
+            current_anchor_timesteps = []
 
-        # If not, save the current timestep index
-        else:
-            anchor_this.append(i)
+        current_anchor_timesteps.append(
+            AnchorTimestep(scores=scores, predict_timestep=i)
+        )
 
-    if len(anchor_this) > 0:
-        output.append(Anchor(segment_idx=prev_highest_score_idx, timesteps=anchor_this))
+    if len(current_anchor_timesteps) > 0:
+        output.append(
+            Anchor(
+                highest_scoring_segment=current_highest_scoring_segment,
+                timesteps=current_anchor_timesteps,
+            )
+        )
 
     return output
