@@ -14,16 +14,12 @@ class Anchor(NamedTuple):
     timesteps: list[AnchorTimestep]
 
 
-def find_anchors(scores_all: list[Tensor]) -> list[Anchor]:
+def find_anchors(scores_all: list[Tensor]) -> list[Anchor | None]:
     """
     Anchors are historical segments in a conversation that are scored the
     highest by an attention mechanism for several consecutive output timesteps.
 
     This function extracts anchors from all attention scores in a conversation.
-    *Note that determining an appropriate length for anchors is outside the scope
-    of this function*: it will return achors that are relevant for only one
-    timestep, which may not be appropriate for an anchor analysis. You must
-    filter the output of this function to remove anchors which are too short!
 
 
     Parameters
@@ -37,12 +33,16 @@ def find_anchors(scores_all: list[Tensor]) -> list[Anchor]:
         All anchors found in the attention scores.
     """
 
-    output: Final[list[Anchor]] = []
+    output: Final[list[Anchor | None]] = []
     current_highest_scoring_segment: Optional[int] = None
     current_anchor_timesteps: list[AnchorTimestep] = []
 
     for i, scores in enumerate(scores_all):
-        this_highest_scoring_segment: int = torch.argmax(scores).item()
+        if len(scores) < 1:
+            output.append(None)
+            continue
+
+        this_highest_scoring_segment: int = int(torch.argmax(scores).item())
 
         # If the highest-scoring segment is different than the previous highest-scoring segment,
         # then we're starting a new anchor.
@@ -62,7 +62,10 @@ def find_anchors(scores_all: list[Tensor]) -> list[Anchor]:
             AnchorTimestep(scores=scores, predict_timestep=i)
         )
 
-    if len(current_anchor_timesteps) > 0:
+    if (
+        len(current_anchor_timesteps) > 0
+        and current_highest_scoring_segment is not None
+    ):
         output.append(
             Anchor(
                 highest_scoring_segment=current_highest_scoring_segment,
