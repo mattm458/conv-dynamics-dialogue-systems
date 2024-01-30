@@ -78,11 +78,9 @@ class SequentialConversationModel(pl.LightningModule):
         self.da_encoding: Final[Literal[None, "one_hot", "embedding"]] = da_encoding
 
         self.validation_outputs: Final[list[Tensor]] = []
-        self.validation_attention_ours: Final[list[Tensor]] = []
-        self.validation_attention_ours_history_mask: Final[list[Tensor]] = []
-        self.validation_attention_theirs: Final[list[Tensor]] = []
-        self.validation_attention_theirs_history_mask: Final[list[Tensor]] = []
-        self.validation_data: Final[list[tuple[Tensor, Tensor]]] = []
+        self.validation_attention_ours: Final[list[list[Tensor]]] = []
+        self.validation_attention_theirs: Final[list[list[Tensor]]] = []
+        self.validation_data: Final[list[BatchedConversationData]] = []
 
         self.lr: Final[float] = lr
         self.attention_style: Final[
@@ -270,34 +268,15 @@ class SequentialConversationModel(pl.LightningModule):
         self.validation_outputs.append(our_features_pred)
         self.validation_data.append(batch)
         self.validation_attention_ours.append(our_scores_all)
-        self.validation_attention_ours_history_mask.append(our_history_mask)
         self.validation_attention_theirs.append(their_scores_all)
-        self.validation_attention_theirs_history_mask.append(their_history_mask)
 
         return loss
 
     def on_validation_epoch_end(self):
-        # self.validation_outputs.append(our_features_pred)
-        # self.validation_data.append((features, speakers, predict))
-
-        torch.save(
-            (
-                self.validation_outputs,
-                self.validation_data,
-                self.validation_attention_ours,
-                self.validation_attention_ours_history_mask,
-                self.validation_attention_theirs,
-                self.validation_attention_theirs_history_mask,
-            ),
-            "validation_data.pt",
-        )
-
         self.validation_outputs.clear()
         self.validation_data.clear()
         self.validation_attention_ours.clear()
-        self.validation_attention_ours_history_mask.clear()
         self.validation_attention_theirs.clear()
-        self.validation_attention_theirs_history_mask.clear()
 
     def on_train_epoch_start(self):
         if self.role_assignment == "random" and self.generator is not None:
