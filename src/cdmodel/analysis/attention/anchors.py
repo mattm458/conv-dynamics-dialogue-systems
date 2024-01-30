@@ -20,6 +20,10 @@ def find_anchors(scores_all: list[Tensor]) -> list[Anchor | None]:
     highest by an attention mechanism for several consecutive output timesteps.
 
     This function extracts anchors from all attention scores in a conversation.
+    *Note that determining an appropriate length for anchors is outside the scope
+    of this function*: it will return achors that are relevant for only one
+    timestep, which may not be appropriate for an anchor analysis. You must
+    filter the output of this function to remove anchors which are too short!
 
 
     Parameters
