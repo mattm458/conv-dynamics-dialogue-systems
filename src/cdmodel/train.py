@@ -393,8 +393,7 @@ def standard_train(
         shuffle=True,
         pin_memory=True,
         drop_last=True,
-        num_workers=4,
-        multiprocessing_context="fork",
+        num_workers=8,
     )
     val_dataset = Dataset(
         dir=dir,
@@ -424,8 +423,7 @@ def standard_train(
         shuffle=False,
         pin_memory=True,
         drop_last=False,
-        num_workers=4,
-        multiprocessing_context="fork",
+        num_workers=8,
     )
 
     # Create a new instance of the model based on the config

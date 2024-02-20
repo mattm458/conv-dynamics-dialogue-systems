@@ -77,7 +77,7 @@ class SequentialConversationModel(pl.LightningModule):
         self.gender_dim: Final[Optional[int]] = gender_dim
         self.da_encoding: Final[Literal[None, "one_hot", "embedding"]] = da_encoding
 
-        self.validation_outputs: Final[list[Tensor]] = []
+        self.validation_predictions: Final[list[Tensor]] = []
         self.validation_attention_ours: Final[list[list[Tensor]]] = []
         self.validation_attention_theirs: Final[list[list[Tensor]]] = []
         self.validation_data: Final[list[BatchedConversationData]] = []
@@ -213,6 +213,8 @@ class SequentialConversationModel(pl.LightningModule):
         if self.role_assignment == "random" and self.generator is not None:
             self.generator.manual_seed(batch.conv_id[0])
 
+        agent_identity_idx: Tensor
+        partner_identity_idx: Tensor
         agent_identity_idx, partner_identity_idx = get_role_identity_idx(
             speaker_identity_idx=batch.speaker_id_idx,
             role_assignment=self.role_assignment,
@@ -265,7 +267,7 @@ class SequentialConversationModel(pl.LightningModule):
                 on_step=False,
             )
 
-        self.validation_outputs.append(our_features_pred)
+        self.validation_predictions.append(our_features_pred)
         self.validation_data.append(batch)
         self.validation_attention_ours.append(our_scores_all)
         self.validation_attention_theirs.append(their_scores_all)
@@ -273,7 +275,7 @@ class SequentialConversationModel(pl.LightningModule):
         return loss
 
     def on_validation_epoch_end(self):
-        self.validation_outputs.clear()
+        self.validation_predictions.clear()
         self.validation_data.clear()
         self.validation_attention_ours.clear()
         self.validation_attention_theirs.clear()
@@ -295,6 +297,8 @@ class SequentialConversationModel(pl.LightningModule):
             self.generator = torch.Generator(device=self.device)
 
     def training_step(self, batch: BatchedConversationData, batch_idx: int):
+        agent_identity_idx: Tensor
+        partner_identity_idx: Tensor
         agent_identity_idx, partner_identity_idx = get_role_identity_idx(
             speaker_identity_idx=batch.speaker_id_idx,
             role_assignment=self.role_assignment,
