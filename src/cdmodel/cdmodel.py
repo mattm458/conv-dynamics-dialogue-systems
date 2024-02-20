@@ -114,7 +114,21 @@ def preprocess(
         n_jobs=8,
         debug=debug,
     )
-    pass
+
+
+@main.command()
+@click.option("--results-dir", required=True, type=str)
+@click.option("--out-dir", required=True, type=str)
+@click.pass_context
+def analyze(ctx, results_dir: str, out_dir: str):
+    if "config" not in ctx.obj:
+        raise Exception(
+            "Analysis requires a configuration to be specified with --config"
+        )
+
+    from cdmodel.analysis.analysis import analyze
+
+    analyze(ctx.obj["config"]["dataset"]["features"], results_dir, out_dir)
 
 
 @main.command()

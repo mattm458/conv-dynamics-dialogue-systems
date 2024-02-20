@@ -3,13 +3,16 @@ fisher-embeddings
 fisher-ipu-data
 
 results*
+preprocessed
 
 _ANALYSIS
 
+*.png
 *.pt
 
 # Custom ML project exclusions
 lightning_logs/
+lightning_logs_old/
 *.ipynb
 .vector_cache
 *.csv

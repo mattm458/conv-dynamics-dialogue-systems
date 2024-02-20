@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from enum import Enum
 from functools import partial
+from typing import Literal
 from typing import NamedTuple, Optional
 
 import parselmouth
@@ -14,7 +15,7 @@ from cdmodel.preprocessing.datasets.da import da_consolidate_category, da_vote
 
 class ConversationStub(NamedTuple):
     path: str
-    side: str
+    side: Literal["A", "B"]
     speaker_id: int
     channel: int
 
@@ -51,7 +52,7 @@ def _process_transcript(
     for conversation_file in conversation_files:
         conversation_audio[conversation_file.side] = parselmouth.Sound(
             conversation_file.path
-        )
+        ).extract_channel(conversation_file.channel + 1)
 
     # Final output list
     output: list[dict] = []
@@ -79,12 +80,18 @@ def _process_transcript(
         features["side_partner"] = list(sides - {segment.side})[0]
         features["speaker_id_partner"] = list(speaker_ids - {segment.speaker_id})[0]
 
-        if speaker_gender is not None:
+        if speaker_gender is None:
+            features["gender"] = None
+            features["gender_partner"] = None
+        else:
             features["gender"] = speaker_gender[segment.speaker_id]
             features["gender_partner"] = speaker_gender[features["speaker_id_partner"]]
 
         # Assemble all DAs into the final feature object
-        if da_precedence is not None:
+        if da_precedence is None:
+            features["da_consolidated"] = None
+            features["da_category"] = None
+        else:
             if segment.da is not None and len(segment.da) > 0:
                 da_consolidated = da_vote(segment.da, da_precedence)
                 features["da_consolidated"] = da_consolidated
@@ -138,7 +145,11 @@ class Dataset(ABC):
         conversation_segments, da_counts = self.apply_dialogue_acts(
             conversation_segments=conversation_segments
         )
-        da_precedence = [da for (da, _) in da_counts.most_common()]
+        da_precedence = (
+            [da for (da, _) in da_counts.most_common()]
+            if da_counts is not None
+            else None
+        )
 
         # Preprocess using pqdm to run in parallel
         processed = pqdm(
@@ -178,7 +189,7 @@ class Dataset(ABC):
 
     def apply_dialogue_acts(
         self, conversation_segments: dict[int, list[Segment]]
-    ) -> tuple[dict[int, list[Segment]], Counter[str]]:
+    ) -> tuple[dict[int, list[Segment]], Counter[str] | None]:
         """
         Apply dialogue act annotations to extracted conversation data, if available.
 
@@ -189,16 +200,16 @@ class Dataset(ABC):
 
         Returns
         -------
-        tuple[dict[int, list[Segment]], Counter[str]]
+        tuple[dict[int, list[Segment]], Counter[str] | None]
             A tuple containing a new dictionary mapping conversation ID to a list of Segment objects.
             Segments will be annotated with dialogue acts where available.
 
             Additionally, the tuple contains a Counter object containing the number of times each
             dialogue act appears in the conversations.
         """
-        return conversation_segments, Counter()
+        return conversation_segments, None
 
-    def get_speaker_gender(self) -> dict[int, str]:
+    def get_speaker_gender(self) -> dict[int, str] | None:
         """
         Return a dictionary mapping speaker ID to the speaker's gender, for speakers where
         this information is available. If gender information is not available for a speaker,
@@ -206,7 +217,8 @@ class Dataset(ABC):
 
         Returns
         -------
-        Optional[dict[int, str]]
+        dict[int, str] | None
             A dictionary mapping speaker ID to gender.
         """
-        return {}
+
+        return None

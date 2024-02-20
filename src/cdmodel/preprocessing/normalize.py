@@ -1,22 +1,6 @@
 import pandas as pd
-from pandas import DataFrame, Series
+from pandas import DataFrame
 from cdmodel.consts import NORM_BY_CONV_SPEAKER_POSTFIX
-
-
-def __do_norm(x: Series) -> Series:
-    T_MAX = 1
-    T_MIN = -1
-
-    median = x.median()
-    std = x.std()
-
-    minimum = median - (3 * std)
-    maximum = median + (3 * std)
-
-    x = (x - minimum) / (maximum - minimum)
-    x = x * (T_MAX - T_MIN) + T_MIN
-
-    return x
 
 
 def norm_by_conv_speaker(df: DataFrame, features: list[str]) -> DataFrame:
@@ -38,7 +22,9 @@ def norm_by_conv_speaker(df: DataFrame, features: list[str]) -> DataFrame:
         A DataFrame containing normalized values.
     """
 
-    data_norm = df.groupby(["id", "speaker_id"])[features].transform(__do_norm)
+    data_norm = df.groupby(["id", "speaker_id"])[features].transform(
+        lambda x: (x - x.median()) / (x.std() * 3.0)
+    )
     data_norm.columns = pd.Index(
         [f"{x}_{NORM_BY_CONV_SPEAKER_POSTFIX}" for x in features]
     )

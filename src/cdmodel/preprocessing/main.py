@@ -176,8 +176,9 @@ def write_da(df: DataFrame, da_col: str, out_dir: str) -> None:
     df_da = pd.DataFrame(
         (da, i + 1) for (i, da) in enumerate(df[da_col][df[da_col].notnull()].unique())
     )
-    df_da.columns = pd.Index(["da", "idx"])
-    df_da.to_csv(path.join(out_dir, f"{da_col}.csv"), index=False)
+    if len(df_da) > 0:
+        df_da.columns = pd.Index(["da", "idx"])
+        df_da.to_csv(path.join(out_dir, f"{da_col}.csv"), index=False)
 
 
 def preprocess(
@@ -225,10 +226,15 @@ def preprocess(
 
     # Determine if we support the dataset for preprocessing. If so, instantiate the
     # corresponding preprocessing object
+    dataset: Dataset
     if dataset_name == "switchboard":
         from cdmodel.preprocessing.datasets import SwitchboardDataset
 
         dataset = SwitchboardDataset(dataset_dir=dataset_dir, debug=debug)
+    elif dataset_name == "fisher":
+        from cdmodel.preprocessing.datasets import FisherDataset
+
+        dataset = FisherDataset(dataset_dir=dataset_dir, debug=debug, n_jobs=8)
     else:
         raise NotImplementedError(f"Dataset {dataset_name} is not implemented")
 
@@ -276,20 +282,22 @@ def preprocess(
 
     # ID assignment: Dialogue acts only
     da_conversation_ids = set(df[df.da.notnull()].id.unique())
-    write_id_mapping(
-        set(df[df.id.isin(da_conversation_ids)].speaker_id.unique()),
-        out_dir,
-        "speaker-ids-da",
-    )
+    if len(da_conversation_ids) > 0:
+        write_id_mapping(
+            set(df[df.id.isin(da_conversation_ids)].speaker_id.unique()),
+            out_dir,
+            "speaker-ids-da",
+        )
 
     min_repeat_conversation_ids = get_conversation_ids_with_min_speaker_repeat(
         df, min_repeat=3
     )
-    write_id_mapping(
-        set(df[df.id.isin(min_repeat_conversation_ids)].speaker_id.unique()),
-        out_dir,
-        "speaker-ids-min-repeat",
-    )
+    if len(min_repeat_conversation_ids) > 0:
+        write_id_mapping(
+            set(df[df.id.isin(min_repeat_conversation_ids)].speaker_id.unique()),
+            out_dir,
+            "speaker-ids-min-repeat",
+        )
 
 
 def write_split(conversation_ids: list[int], out_dir: str, name: str) -> None:
@@ -369,5 +377,5 @@ def write_id_mapping(speaker_ids: set, out_dir: str, name: str) -> None:
         A name for the mapping.
     """
     df = pd.DataFrame((k, i + 1) for (i, k) in enumerate(speaker_ids))
-    df.columns = pd.Index(["speaker_id", "idx"])
+    df = df.set_axis(pd.Index(["speaker_id", "idx"]), axis=1)
     df.to_csv(path.join(out_dir, f"{name}.csv"), index=False)

@@ -10,7 +10,7 @@ from lightning import pytorch as pl
 from torch.nn import functional as F
 from torch.utils.data.dataloader import DataLoader
 
-from cdmodel.data.dataloader import collate_fn
+from cdmodel.data.dataloader_manifest_1 import collate_fn
 from cdmodel.data.dataset import ConversationDataset
 from cdmodel.model.config import get_model
 from cdmodel.util.cv import get_52_cv_ids, get_cv_ids
