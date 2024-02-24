@@ -14,6 +14,7 @@ from cdmodel.model.components import (
     Encoder,
     NoopAttention,
     SingleAttention,
+    SinglePartnerAttention,
 )
 from cdmodel.model.util import (
     get_role_identity_idx,
@@ -40,7 +41,7 @@ class SequentialConversationModel(pl.LightningModule):
         decoder_num_layers: int,
         decoder_dropout: float,
         num_decoders: int,
-        attention_style: Literal["dual_combined", "dual", "single", None],
+        attention_style: Literal["dual", "single_both", "single_partner", None],
         lr: float,
         speaker_role_encoding: Literal[None, "one_hot"] = None,
         gender_encoding: Literal[None, "one_hot"] = None,
@@ -83,9 +84,9 @@ class SequentialConversationModel(pl.LightningModule):
         self.validation_data: Final[list[BatchedConversationData]] = []
 
         self.lr: Final[float] = lr
-        self.attention_style: Final[
-            Literal["dual_combined", "dual", "single", None]
-        ] = attention_style
+        self.attention_style: Literal["dual", "single_both", "single_partner", None] = (
+            attention_style
+        )
 
         self.role_assignment: Final[
             Literal["agent_first", "agent_second", "random"]
@@ -162,10 +163,21 @@ class SequentialConversationModel(pl.LightningModule):
                     for _ in range(num_decoders)
                 ]
             )
-        elif attention_style == "single":
+        elif attention_style == "single_both":
             self.attentions = nn.ModuleList(
                 [
                     SingleAttention(
+                        history_in_dim=history_dim,
+                        context_dim=att_context_dim,
+                        att_dim=decoder_att_dim,
+                    )
+                    for _ in range(num_decoders)
+                ]
+            )
+        elif attention_style == "single_partner":
+            self.attentions = nn.ModuleList(
+                [
+                    SinglePartnerAttention(
                         history_in_dim=history_dim,
                         context_dim=att_context_dim,
                         att_dim=decoder_att_dim,

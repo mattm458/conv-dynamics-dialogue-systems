@@ -144,6 +144,28 @@ class SingleAttention(AttentionModule):
         return att, (scores, None, None)
 
 
+class SinglePartnerAttention(AttentionModule):
+    def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
+        super().__init__()
+
+        self.attention = Attention(
+            history_in_dim=history_in_dim,
+            context_dim=context_dim,
+            att_dim=att_dim,
+        )
+
+    def forward(
+        self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
+    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
+        att, scores = self.attention(
+            history,
+            context=context,
+            mask=~(their_mask).unsqueeze(-1),
+        )
+
+        return att, (scores, None, None)
+
+
 class NoopAttention(AttentionModule):
     def forward(
         self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
