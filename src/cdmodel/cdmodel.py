@@ -133,8 +133,26 @@ def analyze(ctx, results_dir: str, out_dir: str):
 
 @main.command()
 @click.pass_context
-def test(ctx):
-    pass
+@click.option("--checkpoint", required=True, type=str)
+@click.option("--dataset-dir", required=True, type=str)
+@click.option("--out-dir", required=True, type=str)
+def test(ctx, checkpoint: str, dataset_dir: str, out_dir: str):
+    if "config" not in ctx.obj:
+        raise Exception(
+            "Testing requires a configuration to be specified with --config"
+        )
+
+    from cdmodel.test import do_test
+
+    do_test(
+        dataset_config=ctx.obj["config"]["dataset"],
+        training_config=ctx.obj["config"]["training"],
+        model_config=ctx.obj["config"]["model"],
+        checkpoint_path=checkpoint,
+        device=ctx.obj["device"],
+        dataset_dir=dataset_dir,
+        out_dir=out_dir,
+    )
 
 
 @main.command()

@@ -69,9 +69,9 @@ class SequentialConversationModel(pl.LightningModule):
 
         self.features: Final[list[str]] = features
         self.num_features: Final[int] = len(features)
-        self.speaker_role_encoding: Final[
-            Literal[None, "one_hot"]
-        ] = speaker_role_encoding
+        self.speaker_role_encoding: Final[Literal[None, "one_hot"]] = (
+            speaker_role_encoding
+        )
 
         self.gender_encoding: Final[Literal[None, "one_hot"]] = gender_encoding
         self.gender_dim: Final[Optional[int]] = gender_dim
@@ -147,7 +147,7 @@ class SequentialConversationModel(pl.LightningModule):
 
         att_context_dim: Final[int] = (
             embedding_encoder_att_dim  # The encoded representation of the upcoming segment transcript
-            + decoder_hidden_dim  # The decoder hidden state
+            + (decoder_hidden_dim * decoder_num_layers)  # The decoder hidden state
         )
 
         # Initialize the attention mechanisms
@@ -443,16 +443,16 @@ class SequentialConversationModel(pl.LightningModule):
 
             # Assemble the encoder input. This includes the current conversation features
             # and the previously-encoded embeddings.
-            encoder_in = [
+            encoder_in_arr: list[Tensor] = [
                 features_segment,
                 embeddings_encoded_segment,
                 speaker_role_encoded_segment,
             ]
 
             if self.gender_encoding:
-                encoder_in.append(gender_segment)
+                encoder_in_arr.append(gender_segment)
 
-            encoder_in = torch.cat(encoder_in, dim=-1)
+            encoder_in: Tensor = torch.cat(encoder_in_arr, dim=-1)
 
             # Encode the input and append it to the history.
             encoded, encoder_hidden = self.encoder(encoder_in, encoder_hidden)
@@ -468,7 +468,7 @@ class SequentialConversationModel(pl.LightningModule):
             # Assemble the attention context vector for each of the decoder attention layer(s)
             att_contexts = []
             for h in decoder_hidden:
-                att_contexts_arr = [h[-1], embeddings_encoded_segment_next]
+                att_contexts_arr = h + [embeddings_encoded_segment_next]
                 att_contexts.append(torch.cat(att_contexts_arr, dim=-1))
 
             # Get our/their history masks for the timesteps we're about to predict
@@ -546,9 +546,9 @@ class SequentialConversationModel(pl.LightningModule):
                     their_scores_expanded = torch.zeros(
                         (batch_size, num_segments - 1), device=device
                     )
-                    their_scores_expanded[
-                        :, : their_scores.shape[1]
-                    ] = their_scores.squeeze(-1)
+                    their_scores_expanded[:, : their_scores.shape[1]] = (
+                        their_scores.squeeze(-1)
+                    )
 
                     their_scores_expanded_all.append(their_scores_expanded.unsqueeze(1))
 
@@ -576,43 +576,58 @@ class SequentialConversationModel(pl.LightningModule):
             partner_history_mask,
         )
 
-    def predict_step(self, batch, batch_idx):
-        features = batch["features"]
-        speakers = batch["speakser"]
-        embeddings = batch["embeddings"]
-        embeddings_len = batch["embeddings_len"]
-        predict = batch["predict"]
-        conv_len = batch["conv_len"]
+    def predict_step(self, batch: BatchedConversationData, batch_idx: int):
+        if self.role_assignment == "random" and self.generator is not None:
+            self.generator.manual_seed(batch.conv_id[0])
+
+        agent_identity_idx: Tensor
+        partner_identity_idx: Tensor
+        agent_identity_idx, partner_identity_idx = get_role_identity_idx(
+            speaker_identity_idx=batch.speaker_id_idx,
+            role_assignment=self.role_assignment,
+            zero_pad=self.zero_pad,
+            generator=self.generator,
+        )
+
+        # for i in range(len(batch.speaker_id_idx)):
+        #     print(i, batch.speaker_id_idx[i].shape, batch.speaker_id_idx[i])
+        # exit()
+
+        speaker_role_idx: Final[Tensor] = get_speaker_role_idx(
+            speaker_identity_idx=batch.speaker_id_idx,
+            agent_identity_idx=agent_identity_idx,
+            partner_identity_idx=partner_identity_idx,
+        )
+
+        predict_next = (speaker_role_idx == SPEAKER_ROLE_AGENT_IDX)[:, 1:]
+
+        # print(speaker_role_idx.shape)
+        # #for i in range(len(speaker_role_idx)):
+        # print(speaker_role_idx[23])
+        # exit()
 
         (
             our_features_pred,
-            our_scores,
-            our_scores_mask,
-            their_scores,
-            their_scores_mask,
+            our_scores_all,
+            our_history_mask,
+            their_scores_all,
+            their_history_mask,
         ) = self(
-            features,
-            speakers,
-            embeddings,
-            embeddings_len,
-            predict,
-            conv_len,
+            features=batch.features,
+            speaker_role_idx=speaker_role_idx,
+            embeddings=batch.embeddings,
+            embeddings_len=batch.embeddings_segment_len,
+            predict_next=predict_next,
+            conv_len=batch.num_segments,
+            gender_idx=batch.gender_idx,
         )
 
-        output = {
-            "y_hat": our_features_pred,
-            "y": features,
-            "predict": predict,
-            "our_attention_scores": our_scores,
-            "our_attention_scores_mask": our_scores_mask,
-            "their_attention_scores": their_scores,
-            "their_attention_scores_mask": their_scores_mask,
-            "predict": predict,
-            "speakers": speakers,
-            "conv_len": conv_len,
-        }
-
-        if "da" in batch:
-            output["da"] = batch["da"]
-
-        return output
+        return (
+            our_features_pred,
+            our_scores_all,
+            our_history_mask,
+            their_scores_all,
+            their_history_mask,
+            batch,
+            predict_next,
+        )
