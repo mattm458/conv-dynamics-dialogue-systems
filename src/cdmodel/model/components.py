@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 
 import torch
@@ -55,11 +55,15 @@ class Encoder(nn.Module):
         return x, new_hidden
 
 
-class AttentionModule(nn.Module):
-    pass
+class AttentionModule(nn.Module, ABC):
+    @abstractmethod
+    def forward(
+        self, history: Tensor, context: Tensor, agent_mask: Tensor, partner_mask: Tensor
+    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
+        pass
 
 
-class Attention(AttentionModule):
+class Attention(nn.Module):
     def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
         super().__init__()
 
@@ -105,18 +109,18 @@ class DualAttention(AttentionModule):
         )
 
     def forward(
-        self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
+        self, history: Tensor, context: Tensor, agent_mask: Tensor, partner_mask: Tensor
     ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
         our_att, our_scores = self.our_attention(
             history,
             context=context,
-            mask=~our_mask.unsqueeze(-1),
+            mask=~agent_mask.unsqueeze(-1),
         )
 
         their_att, their_scores = self.their_attention(
             history,
             context=context,
-            mask=~their_mask.unsqueeze(-1),
+            mask=~partner_mask.unsqueeze(-1),
         )
 
         return torch.cat([our_att, their_att], dim=-1), (our_scores, their_scores, None)
@@ -133,12 +137,12 @@ class SingleAttention(AttentionModule):
         )
 
     def forward(
-        self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
+        self, history: Tensor, context: Tensor, agent_mask: Tensor, partner_mask: Tensor
     ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
         att, scores = self.attention(
             history,
             context=context,
-            mask=~(our_mask + their_mask).unsqueeze(-1),
+            mask=~(agent_mask + partner_mask).unsqueeze(-1),
         )
 
         return att, (scores, None, None)
@@ -155,12 +159,12 @@ class SinglePartnerAttention(AttentionModule):
         )
 
     def forward(
-        self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
+        self, history: Tensor, context: Tensor, agent_mask: Tensor, partner_mask: Tensor
     ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
         att, scores = self.attention(
             history,
             context=context,
-            mask=~(their_mask).unsqueeze(-1),
+            mask=~(partner_mask).unsqueeze(-1),
         )
 
         return att, (scores, None, None)
@@ -168,7 +172,7 @@ class SinglePartnerAttention(AttentionModule):
 
 class NoopAttention(AttentionModule):
     def forward(
-        self, history: Tensor, context: Tensor, our_mask: Tensor, their_mask: Tensor
+        self, history: Tensor, context: Tensor, agent_mask: Tensor, partner_mask: Tensor
     ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
         return history[:, -1], (None, None, None)
 

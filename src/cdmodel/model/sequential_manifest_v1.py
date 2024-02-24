@@ -8,6 +8,7 @@ from torch.nn import functional as F
 from cdmodel.consts import SPEAKER_ROLE_AGENT_IDX, SPEAKER_ROLE_PARTNER_IDX
 from cdmodel.data.dataloader_manifest_1 import BatchedConversationData
 from cdmodel.model.components import (
+    AttentionModule,
     Decoder,
     DualAttention,
     EmbeddingEncoder,
@@ -492,6 +493,7 @@ class SequentialConversationModel(pl.LightningModule):
             features_pred = []
             combined_scores_cat = []
 
+            attention: AttentionModule
             for decoder_idx, (attention, att_context, h, decoder) in enumerate(
                 zip(
                     self.attentions,
@@ -503,8 +505,8 @@ class SequentialConversationModel(pl.LightningModule):
                 history_att, (our_scores, their_scores, combined_scores) = attention(
                     history,
                     context=att_context,
-                    our_mask=agent_history_mask_subset,
-                    their_mask=partner_history_mask_subset,
+                    agent_mask=agent_history_mask_subset,
+                    partner_mask=partner_history_mask_subset,
                 )
                 combined_scores_cat.append(combined_scores)
 
