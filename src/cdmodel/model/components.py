@@ -1,32 +1,32 @@
-from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Tuple, Final
 
 import torch
-from torch import Tensor, nn
+from torch import Tensor, jit, nn
 
 from cdmodel.model.util import lengths_to_mask
 
 
-class Encoder(nn.Module):
+class Encoder(jit.ScriptModule):
     def __init__(self, in_dim: int, hidden_dim: int, num_layers: int, dropout: float):
         super().__init__()
 
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
+        self.hidden_dim: Final[int] = hidden_dim
+        self.num_layers: Final[int] = num_layers
 
-        self.rnn = nn.ModuleList(
+        self.rnn: Final[nn.ModuleList] = nn.ModuleList(
             [nn.GRUCell(in_dim, hidden_dim)]
             + [nn.GRUCell(hidden_dim, hidden_dim) for _ in range(num_layers - 1)]
         )
 
-        self.dropout = nn.Dropout(dropout)
+        self.dropout: Final[nn.Dropout] = nn.Dropout(dropout)
 
-    def get_hidden(self, batch_size, device):
+    def get_hidden(self, batch_size: int, device) -> list[Tensor]:
         return [
             torch.zeros((batch_size, self.hidden_dim), device=device)
             for x in range(self.num_layers)
         ]
 
+    @jit.script_method
     def forward(
         self,
         encoder_input: Tensor,
@@ -37,33 +37,27 @@ class Encoder(nn.Module):
                 "Number of hidden tensors must equal the number of RNN layers!"
             )
 
-        x = encoder_input
-
+        x: Tensor = encoder_input
         new_hidden: List[Tensor] = []
 
+        i: int
+        rnn: nn.GRUCell
         for i, rnn in enumerate(self.rnn):
-            h = hidden[i]
-
-            h_out = rnn(x, h)
+            h_out = rnn(x, hidden[i])
             x = h_out
+            new_hidden.append(h_out)
 
             if i < (len(self.rnn) - 1):
                 x = self.dropout(x)
 
-            new_hidden.append(h_out)
-
         return x, new_hidden
 
 
-class AttentionModule(nn.Module, ABC):
-    @abstractmethod
-    def forward(
-        self, history: Tensor, context: Tensor, agent_mask: Tensor, partner_mask: Tensor
-    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
-        pass
+class AttentionModule(jit.ScriptModule):
+    pass
 
 
-class Attention(nn.Module):
+class Attention(jit.ScriptModule):
     def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
         super().__init__()
 
@@ -73,57 +67,61 @@ class Attention(nn.Module):
         self.context = nn.Linear(context_dim, att_dim, bias=False)
         self.v = nn.Linear(att_dim, 1, bias=False)
 
+    @jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, mask: Tensor
     ) -> Tuple[Tensor, Tensor]:
-        history_att = self.history(history)
-        context_att = self.context(context).unsqueeze(1)
-        score = self.v(torch.tanh(history_att + context_att))
+        history_att: Final[Tensor] = self.history(history)
+        context_att: Final[Tensor] = self.context(context).unsqueeze(1)
 
+        score: Tensor = self.v(torch.tanh(history_att + context_att))
         score = score.masked_fill(mask, float("-inf"))
         score = torch.softmax(score, dim=1)
-
         score = score.masked_fill(mask, 0.0)
-        score_out = score.detach().clone()
 
-        score = score.squeeze(-1).unsqueeze(1)
-        att_applied = torch.bmm(score, history)
-        att_applied = att_applied.squeeze(1)
+        att_applied: Final[Tensor] = torch.bmm(
+            score.squeeze(-1).unsqueeze(1), history
+        ).squeeze(1)
 
-        return att_applied, score_out
+        return att_applied, score.detach().clone()
 
 
 class DualAttention(AttentionModule):
     def __init__(self, history_in_dim: int, context_dim: int, att_dim: int):
         super().__init__()
 
-        self.our_attention = Attention(
+        self.our_attention: Final[Attention] = Attention(
             history_in_dim=history_in_dim,
             context_dim=context_dim,
             att_dim=att_dim,
         )
-        self.their_attention = Attention(
+        self.their_attention: Final[Attention] = Attention(
             history_in_dim=history_in_dim,
             context_dim=context_dim,
             att_dim=att_dim,
         )
 
+    @jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, agent_mask: Tensor, partner_mask: Tensor
-    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
-        our_att, our_scores = self.our_attention(
+    ) -> Tuple[Tensor, Tuple[Tensor | None, Tensor | None, Tensor | None]]:
+        agent_att, agent_scores = self.our_attention(
             history,
             context=context,
             mask=~agent_mask.unsqueeze(-1),
         )
 
-        their_att, their_scores = self.their_attention(
+        partner_att, partner_scores = self.their_attention(
             history,
             context=context,
             mask=~partner_mask.unsqueeze(-1),
         )
 
-        return torch.cat([our_att, their_att], dim=-1), (our_scores, their_scores, None)
+        return torch.cat([agent_att, partner_att], dim=-1), (
+            agent_scores,
+            partner_scores,
+            None,
+        )
 
 
 class SingleAttention(AttentionModule):
@@ -136,9 +134,10 @@ class SingleAttention(AttentionModule):
             att_dim=att_dim,
         )
 
+    @jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, agent_mask: Tensor, partner_mask: Tensor
-    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
+    ) -> Tuple[Tensor, Tuple[Tensor | None, Tensor | None, Tensor | None]]:
         att, scores = self.attention(
             history,
             context=context,
@@ -158,9 +157,10 @@ class SinglePartnerAttention(AttentionModule):
             att_dim=att_dim,
         )
 
+    @jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, agent_mask: Tensor, partner_mask: Tensor
-    ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
+    ) -> Tuple[Tensor, Tuple[Tensor | None, Tensor | None, Tensor | None]]:
         att, scores = self.attention(
             history,
             context=context,
@@ -171,13 +171,14 @@ class SinglePartnerAttention(AttentionModule):
 
 
 class NoopAttention(AttentionModule):
+    @jit.script_method
     def forward(
         self, history: Tensor, context: Tensor, agent_mask: Tensor, partner_mask: Tensor
     ) -> Tuple[Tensor, Tuple[Optional[Tensor], Optional[Tensor], Optional[Tensor]]]:
         return history[:, -1], (None, None, None)
 
 
-class EmbeddingEncoder(nn.Module):
+class EmbeddingEncoder(jit.ScriptModule):
     def __init__(
         self,
         embedding_dim: int,
@@ -211,6 +212,7 @@ class EmbeddingEncoder(nn.Module):
             att_dim=attention_dim,
         )
 
+    @jit.script_method
     def forward(self, encoder_in: Tensor, lengths: Tensor) -> Tuple[Tensor, Tensor]:
         batch_size = encoder_in.shape[0]
 
@@ -239,7 +241,7 @@ class EmbeddingEncoder(nn.Module):
         )
 
 
-class Decoder(nn.Module):
+class Decoder(jit.ScriptModule):
     def __init__(
         self,
         decoder_in_dim: int,
@@ -247,7 +249,7 @@ class Decoder(nn.Module):
         output_dim: int,
         hidden_dim: int,
         num_layers: int,
-        activation: str,
+        activation: Optional[Literal["tanh"]] = None,
     ):
         super().__init__()
 
@@ -275,6 +277,7 @@ class Decoder(nn.Module):
             for x in range(self.num_layers)
         ]
 
+    @jit.script_method
     def forward(
         self,
         encoded: Tensor,
@@ -316,7 +319,7 @@ class DualAttentionDecoder(nn.Module):
         output_dim: int,
         hidden_dim: int,
         num_layers: int,
-        activation: str,
+        activation: Optional[Literal["tanh"]],
     ):
         super().__init__()
 
