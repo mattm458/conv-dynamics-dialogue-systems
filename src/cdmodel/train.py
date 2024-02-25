@@ -394,6 +394,7 @@ def standard_train(
         pin_memory=True,
         drop_last=True,
         num_workers=8,
+        persistent_workers=True,
     )
     val_dataset = Dataset(
         dir=dir,
@@ -424,6 +425,7 @@ def standard_train(
         pin_memory=True,
         drop_last=False,
         num_workers=8,
+        persistent_workers=True,
     )
 
     # Create a new instance of the model based on the config
