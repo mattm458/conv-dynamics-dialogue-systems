@@ -305,6 +305,7 @@ def standard_train(
         pin_memory=True,
         drop_last=True,
         num_workers=4,
+        persistent_workers=True,
     )
     val_dataset = ConversationDataset(
         dataset_dir=dataset_dir,
@@ -321,6 +322,7 @@ def standard_train(
         pin_memory=True,
         drop_last=False,
         num_workers=4,
+        persistent_workers=True,
     )
 
     # Create a new instance of the model based on the config
@@ -333,7 +335,7 @@ def standard_train(
 
     trainer = pl.Trainer(
         accelerator="gpu",
-        precision=16,
+        precision="16-mixed",
         devices=[device],
         callbacks=[model_checkpoint, early_stopping],
         logger=logger,
