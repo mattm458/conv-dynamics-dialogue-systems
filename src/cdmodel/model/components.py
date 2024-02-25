@@ -82,8 +82,9 @@ class Attention(jit.ScriptModule):
         score = score.masked_fill(mask, float("-inf"))
         score = torch.softmax(score, dim=1)
         score = score.masked_fill(mask, 0.0)
+        score = score.swapaxes(1,2)
 
-        att_applied = torch.bmm(score.squeeze(-1).unsqueeze(1), history).squeeze(1)
+        att_applied = torch.bmm(score, history).squeeze(1)
 
         return att_applied, score.detach().clone()
 

@@ -3,14 +3,16 @@ from os import path
 
 import pandas as pd
 import torch
+import ujson
 from lightning import pytorch as pl
 from torch import Tensor
 from torch.utils.data.dataloader import DataLoader
+from tqdm import tqdm
 
+from cdmodel.consts import SPEAKER_ROLE_AGENT_IDX, SPEAKER_ROLE_PARTNER_IDX
 from cdmodel.data.dataloader_manifest_1 import collate_fn
 from cdmodel.data.dataset_manifest_1 import ConversationDataset
 from cdmodel.model.config import get_model
-from cdmodel.model.sequential_manifest_v1 import SequentialConversationModel
 
 
 def __load_set_ids(dataset_dir: str, dataset_subset: str, set: str) -> list[int]:
@@ -63,7 +65,7 @@ def do_test(
 
     dataset = ConversationDataset(
         dataset_dir=dataset_dir,
-        conv_ids=all_ids,
+        conv_ids=all_ids[:10],
         speaker_ids=speaker_ids,
         features=dataset_config["features"],
         zero_pad=False,
@@ -89,71 +91,84 @@ def do_test(
 
     output = trainer.predict(model=model, dataloaders=[dataloader])
 
-    att_path = path.join(out_dir, "output", "attention")
+    out_path = path.join(out_dir)
     try:
-        os.makedirs(att_path)
+        os.makedirs(out_path)
     except:
         pass
 
+    with open(path.join(out_path, "model_config.json"), "w") as outfile:
+        ujson.dump(model_config, outfile, indent=2)
+    with open(path.join(out_path, "training_config.json"), "w") as outfile:
+        ujson.dump(training_config, outfile, indent=2)
+    with open(path.join(out_path, "dataset_config.json"), "w") as outfile:
+        ujson.dump(dataset_config, outfile, indent=2)
+
     for (
-        our_features_pred,
-        our_scores_all,
-        our_history_mask,
-        their_scores_all,
-        their_history_mask,
+        agent_features_pred,
+        agent_scores,
+        partner_scores,
+        combined_scores,
         batch,
         predict_next,
-    ) in output:
+        speaker_role_idx,
+    ) in tqdm(output, desc="Processing output"):
+        partner_history_mask = (speaker_role_idx == SPEAKER_ROLE_PARTNER_IDX)[:, :-1]
+        agent_history_mask = (speaker_role_idx == SPEAKER_ROLE_AGENT_IDX)[:, :-1]
+
         for i in range(len(batch.conv_id)):
             conv_id = batch.conv_id[i]
+            conv_path = path.join(out_path, str(conv_id))
+            predict_next_i = predict_next[i]
 
-            att_conv_path = path.join(att_path, str(conv_id))
-            try:
-                os.makedirs(att_conv_path)
-            except:
-                pass
+            partner_history_mask_i = partner_history_mask[i]
+            agent_history_mask_i = agent_history_mask[i]
+
+            os.makedirs(conv_path, exist_ok=True)
 
             # Save output features
-            our_features_pred_i = our_features_pred[i, predict_next[i]]
-            torch.save(our_features_pred_i, path.join(att_conv_path, "y_hat.pt"))
+            agent_features_pred_i = agent_features_pred[i, predict_next_i]
+            torch.save(agent_features_pred_i, path.join(conv_path, "y_hat.pt"))
 
-            their_scores_i = their_scores_all[i]
-            our_scores_i = our_scores_all[i]
+            for decoder_i in range(model_config["args"]["num_decoders"]):
+                att_conv_feature_path = path.join(conv_path, f"decoder_{decoder_i}")
+                os.makedirs(att_conv_feature_path, exist_ok=True)
 
-            for f_i, f in enumerate(features):
-                att_conv_feature_path = path.join(att_conv_path, f)
+                if model_config["args"]["attention_style"] in {
+                    "dual",
+                    "single_partner",
+                }:
+                    their_scores_f_pred_timesteps = partner_scores[
+                        i, decoder_i, predict_next_i
+                    ][:, partner_history_mask_i]
+                    their_scores_f: list[Tensor] = []
+                    for their_scores_t in their_scores_f_pred_timesteps:
+                        their_scores_f.append(their_scores_t[their_scores_t > 0.0])
+                    torch.save(
+                        their_scores_f, path.join(att_conv_feature_path, "partner.pt")
+                    )
 
-                try:
-                    os.makedirs(att_conv_feature_path)
-                except:
-                    pass
+                if model_config["args"]["attention_style"] in {"dual"}:
+                    our_scores_f_pred_timesteps = agent_scores[
+                        i, decoder_i, predict_next_i
+                    ][:, agent_history_mask_i]
+                    our_scores_f: list[Tensor] = []
+                    for our_scores_t in our_scores_f_pred_timesteps:
+                        our_scores_f.append(our_scores_t[our_scores_t > 0.0])
+                    torch.save(
+                        our_scores_f, path.join(att_conv_feature_path, "agent.pt")
+                    )
 
-                their_scores_f_pred_timesteps = their_scores_i[predict_next[i], f_i]
-
-                their_scores_f: list[Tensor] = []
-                for pred_timestep, their_scores_t in enumerate(
-                    their_scores_f_pred_timesteps
-                ):
-                    scores_truncated = their_scores_t[their_history_mask[i, :-1]]
-                    scores_truncated = scores_truncated[scores_truncated > 0.0]
-                    if not torch.isclose(scores_truncated.sum(), torch.tensor(1.0)):
-                        print(their_scores_t)
-                        print(their_scores_t[their_history_mask[i, :-1]])
-                        print(scores_truncated)
-                        raise Exception("wut")
-                    their_scores_f.append(scores_truncated)
-                torch.save(
-                    their_scores_f, path.join(att_conv_feature_path, "partner.pt")
-                )
-
-                our_scores_f_pred_timesteps = our_scores_i[predict_next[i], f_i]
-                our_scores_f: list[Tensor] = []
-                for pred_timestep, our_scores_t in enumerate(
-                    our_scores_f_pred_timesteps
-                ):
-                    scores_truncated = our_scores_t[our_history_mask[i, :-1]]
-                    scores_truncated = scores_truncated[scores_truncated > 0.0]
-
-                    our_scores_f.append(scores_truncated)
-
-                torch.save(our_scores_f, path.join(att_conv_feature_path, "agent.pt"))
+                if model_config["args"]["attention_style"] in {"single_both"}:
+                    combined_scores_f_pred_timesteps = combined_scores[
+                        i, decoder_i, predict_next_i
+                    ]
+                    combined_scores_f: list[Tensor] = []
+                    for combined_scores_t in combined_scores_f_pred_timesteps:
+                        combined_scores_f.append(
+                            combined_scores_t[combined_scores_t > 0.0]
+                        )
+                    torch.save(
+                        combined_scores_f,
+                        path.join(att_conv_feature_path, "combined.pt"),
+                    )

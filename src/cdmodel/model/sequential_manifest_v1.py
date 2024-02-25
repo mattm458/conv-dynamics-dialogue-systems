@@ -25,6 +25,33 @@ from cdmodel.model.util import (
 )
 
 
+def expand_cat(x: list[Tensor], dim: int = -1):
+    num_dims = None
+    max_len = -1
+    for t in x:
+        if num_dims is None:
+            num_dims = len(t.shape)
+        elif num_dims != len(t.shape):
+            raise Exception("Tensors in x are not of uniform dimensionality!")
+        if t.shape[dim] > max_len:
+            max_len = t.shape[dim]
+
+    if num_dims is None:
+        raise Exception("Cannot expand_cat an empty tensor!")
+
+    if dim == -1:
+        dim = num_dims - 1
+
+    padded: list[Tensor] = []
+    for t in x:
+        padding = [0, 0] * num_dims
+        padding[-((dim * 2) + 1)] = max_len - t.shape[dim]
+        p = F.pad(t, tuple(padding)).unsqueeze(dim)
+        padded.append(p)
+
+    return torch.cat(padded, dim)
+
+
 class SequentialConversationModel(pl.LightningModule):
     def __init__(
         self,
@@ -412,8 +439,10 @@ class SequentialConversationModel(pl.LightningModule):
         # Lists to store accumulated conversation data from the main loop below
         history_cat: list[Tensor] = []
         decoded_all_cat: list[Tensor] = []
-        agent_scores_cat: list[Tensor] = []
-        partner_scores_cat: list[Tensor] = []
+
+        agent_scores_all: list[Tensor] = []
+        partner_scores_all: list[Tensor] = []
+        combined_scores_all: list[Tensor] = []
 
         # Placeholders to contain predicted features carried over from the previous timestep
         prev_features = torch.zeros((batch_size, self.num_features), device=device)
@@ -509,29 +538,44 @@ class SequentialConversationModel(pl.LightningModule):
             features_pred = torch.cat(features_pred_cat, dim=-1)
             decoded_all_cat.append(features_pred.unsqueeze(1))
 
+            if len(agent_scores_cat) > 0:
+                agent_scores_all.append(torch.cat(agent_scores_cat, dim=1))
+            if len(partner_scores_cat) > 0:
+                partner_scores_all.append(torch.cat(partner_scores_cat, dim=1))
+            if len(combined_scores_cat) > 0:
+                combined_scores_all.append(torch.cat(combined_scores_cat, dim=1))
+
             prev_predict = predict_next_segmented[i]
             prev_features = features_pred
 
         return (
             torch.cat(decoded_all_cat, dim=1),
             (
-                torch.cat(agent_scores_cat, dim=1).squeeze(-1)
-                if len(agent_scores_cat) > 0
+                expand_cat(agent_scores_all, dim=-1)
+                if len(agent_scores_all) > 0
                 else None
             ),
             (
-                torch.cat(partner_scores_cat, dim=1).squeeze(-1)
-                if len(partner_scores_cat) > 0
+                expand_cat(partner_scores_all, dim=-1)
+                if len(partner_scores_all) > 0
                 else None
             ),
             (
-                torch.cat(combined_scores_cat, dim=1).squeeze(-1)
-                if len(combined_scores_cat) > 0
+                expand_cat(combined_scores_all, dim=-1)
+                if len(combined_scores_all) > 0
                 else None
             ),
         )
 
-    def predict_step(self, batch: BatchedConversationData, batch_idx: int):
+    def predict_step(self, batch: BatchedConversationData, batch_idx: int) -> tuple[
+        Tensor,
+        Tensor | None,
+        Tensor | None,
+        Tensor | None,
+        BatchedConversationData,
+        Tensor,
+        Tensor,
+    ]:
         if self.role_assignment == "random" and self.generator is not None:
             self.generator.manual_seed(batch.conv_id[0])
 
@@ -567,4 +611,5 @@ class SequentialConversationModel(pl.LightningModule):
             combined_scores,
             batch,
             predict_next,
+            speaker_role_idx,
         )
