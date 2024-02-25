@@ -205,6 +205,15 @@ class SequentialConversationModel(pl.LightningModule):
         )
 
         # Initialize the decoders
+        if num_decoders == 1:
+            decoder_out_dim = len(features)
+        elif num_decoders == len(features):
+            decoder_out_dim = 1
+        else:
+            raise Exception(
+                f"Configuration specifies {num_decoders} which cannot output {len(features)} output features!"
+            )
+
         self.decoders = nn.ModuleList(
             [
                 Decoder(
@@ -212,7 +221,7 @@ class SequentialConversationModel(pl.LightningModule):
                     hidden_dim=decoder_hidden_dim,
                     num_layers=decoder_num_layers,
                     decoder_dropout=decoder_dropout,
-                    output_dim=1,
+                    output_dim=decoder_out_dim,
                     activation=None,
                 )
                 for _ in range(num_decoders)
