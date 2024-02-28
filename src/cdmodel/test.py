@@ -65,7 +65,7 @@ def do_test(
 
     dataset = ConversationDataset(
         dataset_dir=dataset_dir,
-        conv_ids=all_ids[:10],
+        conv_ids=all_ids,
         speaker_ids=speaker_ids,
         features=dataset_config["features"],
         zero_pad=False,

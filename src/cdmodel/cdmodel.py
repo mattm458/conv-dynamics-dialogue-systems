@@ -71,29 +71,11 @@ def train(
 @main.command(help="Produce the statistics and graphs used in the paper.")
 @click.pass_context
 @click.option("--results-dir", required=True, type=str)
-@click.option("--n-jobs", required=False, default=2, type=int)
-@click.option("--embeddings-dir", required=True, type=str)
-@click.option("--conversation-data-dir", required=True, type=str)
-def stats(
-    ctx: Context,
-    results_dir: str,
-    n_jobs: int,
-    embeddings_dir: str,
-    conversation_data_dir: str,
-):
-    from cdmodel.stats import do_stats
+@click.option("--dataset-dir", required=True, type=str)
+def stats(ctx: Context, results_dir: str, dataset_dir: str):
+    from cdmodel.stats_v2 import do_stats
 
-    do_stats(
-        dataset_config=ctx.obj["config"]["dataset"],
-        training_config=ctx.obj["config"]["training"],
-        model_config=ctx.obj["config"]["model"],
-        results_dir=results_dir,
-        device=ctx.obj["device"],
-        n_jobs=n_jobs,
-        embeddings_dir=embeddings_dir,
-        conversation_data_dir=conversation_data_dir,
-    )
-    pass
+    do_stats(results_dir=results_dir, dataset_dir=dataset_dir)
 
 
 @main.command()
