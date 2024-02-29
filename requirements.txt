@@ -24,7 +24,7 @@ torch==2.2.1
 torchaudio==2.2.1
 torchtext==0.17.1
 tqdm==4.66.2
-types-beautifulsoup4==4.12.0.20240106
+types-beautifulsoup4==4.12.0.20240229
 types-tqdm==4.66.0.20240106
 types-ujson==5.9.0.0
 ujson==5.9.0
